@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AnalysisModelSpeedPayload } from '@/lib/types';
-import { formatModelSpeedTime, formatModelSpeedTimeRange, mergeModelSpeedBuckets, modelSpeedBucketIndex, modelSpeedMean, modelSpeedTooltipRows } from '../analysisModelSpeed';
+import { formatModelSpeedTimeRange, mergeModelSpeedBuckets, modelSpeedBucketIndex, modelSpeedMean, modelSpeedTooltipRows } from '../analysisModelSpeed';
 
 const fixture = (): AnalysisModelSpeedPayload => ({
   buckets: Array.from({ length: 9 }, (_, index) => ({ start: `2026-10-${String(index + 1).padStart(2, '0')}T00:00:00+08:00`, end: `2026-10-${String(index + 2).padStart(2, '0')}T00:00:00+08:00` })),
@@ -49,11 +49,6 @@ describe('Analysis model speed groups', () => {
     expect(modelSpeedBucketIndex(99, 8)).toBe(7);
   });
 
-  it('formats labels in the response timezone under a UTC test host', () => {
-    expect(formatModelSpeedTime('2026-10-08T00:00:00Z', 'Asia/Shanghai', 'en', true)).toContain('08:00');
-    expect(formatModelSpeedTime('2026-10-08T00:00:00Z', 'America/New_York', 'en', true)).toContain('20:00');
-  });
-
   it('keeps same-day half ranges to time only even when the UTC date changes', () => {
     expect(formatModelSpeedTimeRange('2026-10-08T23:55:00Z', '2026-10-09T00:05:00Z', 'Asia/Shanghai', 'en'))
       .toBe('07:55:00 – 08:05:00');
@@ -66,5 +61,17 @@ describe('Analysis model speed groups', () => {
     expect(range).toContain('23:55:00');
     expect(range).toContain('00:05:00');
     expect(range).not.toContain('2026');
+  });
+
+  it('uses minute precision for hourly Analysis ranges while retaining short dates across midnight', () => {
+    expect(formatModelSpeedTimeRange('2026-10-08T23:55:00Z', '2026-10-09T00:05:00Z', 'Asia/Shanghai', 'en', 'minutes'))
+      .toBe('07:55 – 08:05');
+    const range = formatModelSpeedTimeRange('2026-10-08T15:55:00Z', '2026-10-08T16:05:00Z', 'Asia/Shanghai', 'en', 'minutes');
+    expect(range).toContain('10/08');
+    expect(range).toContain('10/09');
+    expect(range).toContain('23:55');
+    expect(range).toContain('00:05');
+    expect(range).not.toContain('2026');
+    expect(range).not.toContain(':00');
   });
 });

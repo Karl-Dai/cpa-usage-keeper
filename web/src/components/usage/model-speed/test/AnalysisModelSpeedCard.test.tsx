@@ -26,7 +26,7 @@ describe('Analysis model speed card', () => {
   let container: HTMLDivElement;
   beforeEach(() => { localStorage.clear(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
-  const render = async (response = speed) => { await act(async () => root.render(<AnalysisModelSpeedCard speed={response} loading={false} isDark={false} isMobile={false} timezone="Asia/Shanghai" />)); };
+  const render = async (response = speed, granularity: 'hourly' | 'daily' = 'hourly') => { await act(async () => root.render(<AnalysisModelSpeedCard speed={response} granularity={granularity} loading={false} isDark={false} isMobile={false} timezone="Asia/Shanghai" />)); };
   const event = async (x: number, y = 100, type: 'mousemove' | 'click' | 'mouseout' = 'mousemove', plugin = captured.plugins[0]) => {
     const chart = { canvas: container.querySelector('canvas'), chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { x: { getValueForPixel: (value: number) => value } } } as unknown as Chart<'scatter'>;
     await act(async () => plugin.afterEvent!(chart, { event: { type, x, y, native: null }, replay: false, inChartArea: true }, {}));
@@ -52,13 +52,39 @@ describe('Analysis model speed card', () => {
     expect(tooltip.textContent).toContain('80.0 t/s');
     expect(tooltip.textContent).toContain('00:00');
     expect(tooltip.textContent).toContain('03:00');
-    expect(Array.from(tooltip.querySelectorAll('li strong'), (item) => item.textContent)).toEqual(['fast-model-full-name', 'slow-model-full-name', 'no-speed-model']);
+    expect(Array.from(tooltip.querySelectorAll('li strong:first-child'), (item) => item.textContent)).toEqual(['fast-model-full-name', 'slow-model-full-name', 'no-speed-model']);
     await event(1.25);
     expect(document.querySelector('[data-model-speed-tooltip]')!.querySelectorAll('li')).toHaveLength(3);
     expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).not.toContain('t/s');
     await act(async () => container.querySelector<HTMLButtonElement>('button')!.click());
     expect(document.querySelector('[data-model-speed-picker]')).not.toBeNull();
     expect(document.querySelector('[data-model-speed-tooltip]')).toBeNull();
+  });
+
+  it('uses time-only hourly ticks and title, with emphasized speed beside the model and samples below', async () => {
+    await render();
+    const tick = captured.options.scales?.x?.ticks?.callback as (value: number) => string;
+    expect([tick(0), tick(1)]).toEqual(['00:00', '03:00']);
+    await event(0.3);
+    const tooltip = document.querySelector<HTMLElement>('[data-model-speed-tooltip]')!;
+    expect(tooltip.querySelector(':scope > strong')!.textContent).toBe('00:00 – 03:00');
+    const value = tooltip.querySelector<HTMLElement>('[data-model-speed-value]')!;
+    expect(value.textContent).toBe('80.0 t/s');
+    expect(getComputedStyle(value).color).toBe('#111827');
+    expect(tooltip.querySelector('li small')!.textContent).toBe('usage_stats.model_speed_samples: 1');
+  });
+
+  it('uses short month/day ticks and a date-only tooltip interval for daily response buckets', async () => {
+    const daily = structuredClone(speed);
+    daily.buckets = [
+      { start: '2026-10-08T00:00:00+08:00', end: '2026-10-09T00:00:00+08:00' },
+      { start: '2026-10-09T00:00:00+08:00', end: '2026-10-10T00:00:00+08:00' },
+    ];
+    await render(daily, 'daily');
+    const tick = captured.options.scales?.x?.ticks?.callback as (value: number) => string;
+    expect([tick(0), tick(1)]).toEqual(['10/8', '10/9']);
+    await event(0.3);
+    expect(document.querySelector('[data-model-speed-tooltip] > strong')!.textContent).toBe('10/8 – 10/9');
   });
 
   it('keeps the registered plugin reading current selections and refreshed response data', async () => {

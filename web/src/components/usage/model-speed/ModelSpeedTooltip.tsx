@@ -11,7 +11,7 @@ export function ModelSpeedTooltip({ canvasRef, x, y, touch, theme, title, rows, 
   touch: boolean;
   theme: UsageChartTheme;
   title: string;
-  rows: { model: string; color: string; detail: string; secondary?: string }[];
+  rows: { model: string; color: string; detail: string; secondary: string }[];
   dismiss: () => void;
 }) {
   const tooltipStyle = buildUsageChartTooltipStyle(theme);
@@ -53,9 +53,8 @@ export function ModelSpeedTooltip({ canvasRef, x, y, touch, theme, title, rows, 
     <ol className={styles.tooltipRows} style={{ gap: tooltipStyle.bodySpacing }}>
       {rows.map((row) => <li key={row.model}>
         <span className={styles.tooltipDot} style={{ backgroundColor: row.color }} aria-hidden="true" />
-        <span><strong>{row.model}</strong>{row.secondary
-          ? <> · {row.detail}<br /><small className={styles.tooltipSecondary}>{row.secondary}</small></>
-          : <><br />{row.detail}</>}</span>
+        <span><strong>{row.model}</strong> · <strong className={styles.tooltipValue} style={{ color: tooltipStyle.titleColor }} data-model-speed-value>{row.detail}</strong>
+          <br /><small className={styles.tooltipSecondary}>{row.secondary}</small></span>
       </li>)}
     </ol>
   </div>, document.body);

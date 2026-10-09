@@ -48,28 +48,21 @@ export function modelSpeedBucketIndex(value: number, count: number) {
   return Math.max(0, Math.min(count - 1, Math.round(value)));
 }
 
-export function formatModelSpeedTime(timestamp: string, timezone: string, locale: string, short = false, includeSeconds = false) {
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      timeZone: timezone, month: '2-digit', day: '2-digit',
-      ...(short ? {} : { year: 'numeric' as const }),
-      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-      ...(includeSeconds ? { second: '2-digit' as const } : {}),
-    }).format(new Date(timestamp));
-  } catch { return timestamp.replace('T', ' ').slice(0, 16); }
-}
-
-export function formatModelSpeedTimeRange(start: string | undefined, end: string | undefined, timezone: string, locale: string) {
+export function formatModelSpeedTimeRange(start: string | undefined, end: string | undefined, timezone: string, locale: string, precision: 'seconds' | 'minutes' | 'date' = 'seconds') {
   if (!start || !end) return '';
   try {
     const startDate = new Date(start);
     const endDate = new Date(end);
     const dayFormat = new Intl.DateTimeFormat(locale, { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
-    // 按响应时区判断跨日，同日只留时分秒，跨日补月日以区分两端。
+    // 按响应时区判断跨日；小时范围只留时间，跨日补月日，日粒度只显示月日。
     const crossesDay = dayFormat.format(startDate) !== dayFormat.format(endDate);
     const format = new Intl.DateTimeFormat(locale, {
-      timeZone: timezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-      ...(crossesDay ? { month: '2-digit' as const, day: '2-digit' as const } : {}),
+      timeZone: timezone, hourCycle: 'h23',
+      ...(precision === 'date'
+        ? { month: 'numeric' as const, day: 'numeric' as const }
+        : { hour: '2-digit' as const, minute: '2-digit' as const,
+          ...(precision === 'seconds' ? { second: '2-digit' as const } : {}),
+          ...(crossesDay ? { month: '2-digit' as const, day: '2-digit' as const } : {}) }),
     });
     return `${format.format(startDate)} – ${format.format(endDate)}`;
   } catch { return `${start} – ${end}`; }

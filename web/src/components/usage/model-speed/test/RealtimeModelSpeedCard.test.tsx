@@ -51,6 +51,9 @@ it('shows complete model name and accurate two half time ranges with means and s
   expect(tooltip.textContent).toContain('80.0 t/s');
   expect(tooltip.querySelectorAll('li')).toHaveLength(2);
   expect(tooltip.querySelector('li strong')!.textContent).toBe('usage_stats.model_speed_first_half');
+  const value = tooltip.querySelector<HTMLElement>('[data-model-speed-value]')!;
+  expect(value.textContent).toBe('40.0 t/s');
+  expect(getComputedStyle(value).color).toBe('#111827');
   expect(tooltip.querySelector('li small')!.textContent).toBe('12:00:00 – 12:07:30 · usage_stats.model_speed_samples: 3');
   expect(tooltip.textContent).not.toContain('10/08/2026');
   await hover(0);

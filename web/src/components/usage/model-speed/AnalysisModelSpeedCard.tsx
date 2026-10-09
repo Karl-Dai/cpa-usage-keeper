@@ -3,13 +3,14 @@ import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
 import { Scatter } from 'react-chartjs-2';
-import type { AnalysisModelSpeedPayload } from '@/lib/types';
+import type { AnalysisModelSpeedPayload, AnalysisResponse } from '@/lib/types';
 import { formatCompactNumber } from '@/utils/usage';
 import { getUsageChartTheme, USAGE_CHART_COMPOSITION_COLORS } from '@/utils/usage/chartConfig';
-import { formatModelSpeedTime, mergeModelSpeedBuckets, modelSpeedBucketIndex, modelSpeedMean, modelSpeedTooltipRows } from './analysisModelSpeed';
+import { formatModelSpeedTimeRange, mergeModelSpeedBuckets, modelSpeedBucketIndex, modelSpeedMean, modelSpeedTooltipRows } from './analysisModelSpeed';
 import { ModelSpeedPicker } from './ModelSpeedPicker';
 import { ModelSpeedTooltip } from './ModelSpeedTooltip';
 import { useModelSpeedSelection } from './modelSpeedSelection';
+import { formatBucketLabel } from '../analysis/analysisTimeLabels';
 import panelStyles from '../analysis/AnalysisPanel.module.scss';
 import styles from './ModelSpeedChart.module.scss';
 
@@ -21,8 +22,9 @@ const colorAt = (slot: number | undefined, isDark: boolean) => {
   return isDark ? color.light : color.base;
 };
 
-export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMobile, timezone = 'UTC', preferenceScope = 'admin' }: {
+export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly', loading, isDark, isMobile, timezone = 'UTC', preferenceScope = 'admin' }: {
   speed?: AnalysisModelSpeedPayload;
+  granularity?: AnalysisResponse['granularity'];
   loading: boolean;
   isDark: boolean;
   isMobile: boolean;
@@ -39,7 +41,7 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
   const [pickerOpen, setPickerOpen] = useState(false);
   const locale = i18n?.language ?? 'en';
   const models = useMemo(() => new Map(speed.series.map((series) => [series.model, series])), [speed]);
-  const labels = useMemo(() => speed.buckets.map((bucket) => formatModelSpeedTime(bucket.start, timezone, locale, true)), [speed, timezone, locale]);
+  const labels = useMemo(() => speed.buckets.map((bucket) => formatBucketLabel(bucket.start, granularity, timezone)), [speed, granularity, timezone]);
   const chartData = useMemo<ChartData<'scatter', SpeedPoint[]>>(() => ({
     datasets: selected.map((model, modelIndex) => ({
       label: model,
@@ -109,7 +111,7 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
         grid: { color: theme.grid, drawTicks: false }, border: { color: theme.axis },
         afterBuildTicks: (scale) => { scale.ticks = labels.map((_, index) => ({ value: index })); },
         ticks: { color: theme.textSecondary, font: { size: 10 }, maxRotation: 0, autoSkip: false,
-          callback: (value) => labels[Number(value)]?.split(/[,，]?\s+/) ?? '' },
+          callback: (value) => labels[Number(value)] ?? '' },
       },
       y: { beginAtZero: true, min: 0, grid: { color: theme.grid }, border: { color: theme.axis },
         title: { display: true, text: 't/s', color: theme.textSecondary, font: { size: 10 } },
@@ -122,7 +124,8 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
   const tooltipRows = visibleHover ? modelSpeedTooltipRows(speed, selected, visibleHover.bucket).map((row) => ({
     model: row.model,
     color: colorAt(colors[row.model], isDark),
-    detail: `${row.mean === null ? t('usage_stats.no_data') : `${row.mean.toFixed(1)} t/s`} · ${t('usage_stats.model_speed_samples', { samples: row.count.toLocaleString(locale) })}`,
+    detail: row.mean === null ? t('usage_stats.no_data') : `${row.mean.toFixed(1)} t/s`,
+    secondary: t('usage_stats.model_speed_samples', { samples: row.count.toLocaleString(locale) }),
   })) : [];
 
   return <section className={`${panelStyles.analysisCard} keeper-card-surface`} data-analysis-model-speed>
@@ -147,7 +150,7 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
       </div>}
     </div>
     {visibleHover && hoveredBucket && <ModelSpeedTooltip canvasRef={canvasRef} x={visibleHover.x} y={visibleHover.y} touch={visibleHover.touch} theme={theme}
-      title={`${formatModelSpeedTime(hoveredBucket.start, timezone, locale)} – ${formatModelSpeedTime(hoveredBucket.end, timezone, locale)}`}
+      title={formatModelSpeedTimeRange(hoveredBucket.start, hoveredBucket.end, timezone, locale, granularity === 'daily' ? 'date' : 'minutes')}
       rows={tooltipRows} dismiss={dismiss} />}
   </section>;
 }
