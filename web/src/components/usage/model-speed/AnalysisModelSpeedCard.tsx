@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
@@ -35,8 +35,6 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
   const theme = useMemo(() => getUsageChartTheme(isDark), [isDark]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const touchInput = useRef(false);
-  const hoveringTooltip = useRef(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const locale = i18n?.language ?? 'en';
@@ -56,17 +54,8 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
       borderWidth: 1,
     })),
   }), [selected, speed, models, colors, isDark, isMobile]);
-  const cancelClose = useCallback(() => {
-    if (closeTimer.current !== null) clearTimeout(closeTimer.current);
-    closeTimer.current = null;
-  }, []);
-  const dismiss = useCallback(() => { cancelClose(); hoveringTooltip.current = false; setHover(null); }, [cancelClose]);
-  const scheduleClose = useCallback(() => {
-    cancelClose();
-    if (touchInput.current || hoveringTooltip.current) return;
-    closeTimer.current = setTimeout(dismiss, 160);
-  }, [cancelClose, dismiss]);
-  useEffect(() => cancelClose, [cancelClose]);
+  const dismiss = useCallback(() => setHover(null), []);
+  const closeOnLeave = useCallback(() => { if (!touchInput.current) dismiss(); }, [dismiss]);
   const changePickerOpen = useCallback((open: boolean) => { setPickerOpen(open); if (open) dismiss(); }, [dismiss]);
 
   // 命中整个显示时间组，包含点之间的空白与无样本模型；不依赖 scatter 最近单点。
@@ -88,21 +77,20 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
     },
     afterEvent(chart, { event }) {
       if (pickerOpen || !selected.length || !speed.buckets.length) return;
-      if (event.type === 'mouseout') { scheduleClose(); return; }
+      if (event.type === 'mouseout') { closeOnLeave(); return; }
       if (event.type !== 'mousemove' && event.type !== 'click') return;
       if (touchInput.current && event.type !== 'click') return;
       const { x, y } = event;
       const area = chart.chartArea;
-      if (x === null || y === null || x < area.left || x > area.right || y < area.top || y > area.bottom) { scheduleClose(); return; }
+      if (x === null || y === null || x < area.left || x > area.right || y < area.top || y > area.bottom) { closeOnLeave(); return; }
       const value = chart.scales.x.getValueForPixel(x);
       if (typeof value !== 'number') return;
-      cancelClose();
       canvasRef.current = chart.canvas;
       const bucket = modelSpeedBucketIndex(value, speed.buckets.length);
       setHover((previous) => previous?.source === speed && previous.bucket === bucket && previous.x === x && previous.y === y && previous.touch === touchInput.current
         ? previous : { source: speed, bucket, x, y, touch: touchInput.current });
     },
-  }), [models, selected, speed, pickerOpen, cancelClose, scheduleClose]);
+  }), [models, selected, speed, pickerOpen, closeOnLeave]);
   const liveHandlers = useRef(handlers);
   useLayoutEffect(() => { liveHandlers.current = handlers; }, [handlers]);
   // react-chartjs-2 只在建图时注册局部插件，稳定实例从最新 handlers 读取选择和刷新数据。
@@ -158,9 +146,8 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
         </span>)}
       </div>}
     </div>
-    {visibleHover && hoveredBucket && <ModelSpeedTooltip canvasRef={canvasRef} x={visibleHover.x} y={visibleHover.y} touch={visibleHover.touch}
+    {visibleHover && hoveredBucket && <ModelSpeedTooltip canvasRef={canvasRef} x={visibleHover.x} y={visibleHover.y} touch={visibleHover.touch} theme={theme}
       title={`${formatModelSpeedTime(hoveredBucket.start, timezone, locale)} – ${formatModelSpeedTime(hoveredBucket.end, timezone, locale)}`}
-      rows={tooltipRows} dismiss={dismiss} cancelClose={() => { hoveringTooltip.current = true; cancelClose(); }}
-      scheduleClose={() => { hoveringTooltip.current = false; scheduleClose(); }} />}
+      rows={tooltipRows} dismiss={dismiss} />}
   </section>;
 }

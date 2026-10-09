@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
@@ -6,7 +6,7 @@ import { Scatter } from 'react-chartjs-2';
 import type { RealtimeModelSpeedPayload } from '@/lib/types';
 import { formatCompactNumber } from '@/utils/usage';
 import { getUsageChartTheme, USAGE_CHART_COMPOSITION_COLORS } from '@/utils/usage/chartConfig';
-import { formatModelSpeedTime, modelSpeedBucketIndex, modelSpeedMean } from './analysisModelSpeed';
+import { formatModelSpeedTimeRange, modelSpeedBucketIndex, modelSpeedMean } from './analysisModelSpeed';
 import { ModelSpeedPicker } from './ModelSpeedPicker';
 import { ModelSpeedTooltip } from './ModelSpeedTooltip';
 import { useModelSpeedSelection } from './modelSpeedSelection';
@@ -41,14 +41,10 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
   const secondLabel = t('usage_stats.model_speed_second_half');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const touchInput = useRef(false);
-  const hoveringTooltip = useRef(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const cancelClose = useCallback(() => { if (closeTimer.current !== null) clearTimeout(closeTimer.current); closeTimer.current = null; }, []);
-  const dismiss = useCallback(() => { cancelClose(); hoveringTooltip.current = false; setHover(null); }, [cancelClose]);
-  const scheduleClose = useCallback(() => { cancelClose(); if (!touchInput.current && !hoveringTooltip.current) closeTimer.current = setTimeout(dismiss, 160); }, [cancelClose, dismiss]);
-  useEffect(() => cancelClose, [cancelClose]);
+  const dismiss = useCallback(() => setHover(null), []);
+  const closeOnLeave = useCallback(() => { if (!touchInput.current) dismiss(); }, [dismiss]);
   const changePickerOpen = useCallback((open: boolean) => { setPickerOpen(open); if (open) dismiss(); }, [dismiss]);
   const radius = isMobile ? 4 : 5;
   const noDataLabel = t('usage_stats.no_data');
@@ -93,21 +89,20 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
     },
     afterEvent(chart, { event }) {
       if (pickerOpen || !speed.available || !selected.length) return;
-      if (event.type === 'mouseout') { scheduleClose(); return; }
+      if (event.type === 'mouseout') { closeOnLeave(); return; }
       if (event.type !== 'mousemove' && event.type !== 'click') return;
       if (touchInput.current && event.type !== 'click') return;
       const { x, y } = event;
       const area = chart.chartArea;
-      if (x === null || y === null || x < area.left || x > area.right || y < area.top || y > area.bottom) { scheduleClose(); return; }
+      if (x === null || y === null || x < area.left || x > area.right || y < area.top || y > area.bottom) { closeOnLeave(); return; }
       const value = chart.scales.y.getValueForPixel(y);
       if (typeof value !== 'number') return;
-      cancelClose();
       const model = selected[modelSpeedBucketIndex(value, selected.length)];
       canvasRef.current = chart.canvas;
       setHover((previous) => previous?.source === speed && previous.model === model && previous.x === x && previous.y === y && previous.touch === touchInput.current
         ? previous : { source: speed, model, x, y, touch: touchInput.current });
     },
-  }), [selected, models, colors, isDark, radius, speed, pickerOpen, cancelClose, scheduleClose, theme, noDataLabel]);
+  }), [selected, models, colors, isDark, radius, speed, pickerOpen, closeOnLeave, theme, noDataLabel]);
   const liveHandlers = useRef(handlers);
   useLayoutEffect(() => { liveHandlers.current = handlers; }, [handlers]);
   const plugin = useMemo<Plugin<'scatter'>>(() => ({
@@ -136,14 +131,14 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
   }), [theme, isMobile, selected]);
   const visibleHover = !initialLoading && !pickerOpen && speed.available && hover?.source === speed && selected.includes(hover.model) ? hover : null;
   const hoveredModel = visibleHover ? models.get(visibleHover.model) : null;
-  const formatTime = (timestamp?: string) => timestamp ? formatModelSpeedTime(timestamp, timezone, locale, false, true) : '';
   const tooltipRows = visibleHover ? [
     { sample: hoveredModel?.first_half, label: firstLabel, start: speed.start, end: speed.mid },
     { sample: hoveredModel?.second_half, label: secondLabel, start: speed.mid, end: speed.end },
   ].map(({ sample, label, start, end }) => {
     const mean = modelSpeedMean(sample);
-    return { model: `${label} · ${formatTime(start)} – ${formatTime(end)}`, color: colorAt(colors[visibleHover.model], isDark),
-      detail: `${mean === null ? t('usage_stats.no_data') : `${mean.toFixed(1)} t/s`} · ${t('usage_stats.model_speed_samples', { samples: (sample?.speed_sample_count ?? 0).toLocaleString(locale) })}` };
+    return { model: label, color: colorAt(colors[visibleHover.model], isDark),
+      detail: mean === null ? t('usage_stats.no_data') : `${mean.toFixed(1)} t/s`,
+      secondary: `${formatModelSpeedTimeRange(start, end, timezone, locale)} · ${t('usage_stats.model_speed_samples', { samples: (sample?.speed_sample_count ?? 0).toLocaleString(locale) })}` };
   }) : [];
 
   return <section className={`${usageStyles.overviewRealtimeCard} keeper-card-surface`} data-realtime-model-speed aria-busy={loading}>
@@ -170,7 +165,7 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
         </span>)}
       </div>}
     </div>
-    {visibleHover && <ModelSpeedTooltip canvasRef={canvasRef} x={visibleHover.x} y={visibleHover.y} touch={visibleHover.touch}
-      title={visibleHover.model} rows={tooltipRows} dismiss={dismiss} cancelClose={() => { hoveringTooltip.current = true; cancelClose(); }} scheduleClose={() => { hoveringTooltip.current = false; scheduleClose(); }} />}
+    {visibleHover && <ModelSpeedTooltip canvasRef={canvasRef} x={visibleHover.x} y={visibleHover.y} touch={visibleHover.touch} theme={theme}
+      title={visibleHover.model} rows={tooltipRows} dismiss={dismiss} />}
   </section>;
 }

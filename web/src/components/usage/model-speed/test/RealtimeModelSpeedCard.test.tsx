@@ -22,9 +22,9 @@ let root: Root;
 beforeEach(() => { localStorage.clear(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 const render = async (response = speed, loading = false) => { await act(async () => root.render(<RealtimeModelSpeedCard speed={response} loading={loading} isDark={false} isMobile={false} timezone="Asia/Shanghai" />)); };
-const hover = async (row: number, plugin = captured.plugins[0]) => {
+const hover = async (row: number, plugin = captured.plugins[0], type: 'mousemove' | 'click' | 'mouseout' = 'mousemove') => {
   const chart = { canvas: container.querySelector('canvas'), chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { y: { getValueForPixel: (value: number) => value } } } as unknown as Chart<'scatter'>;
-  await act(async () => plugin.afterEvent!(chart, { event: { type: 'mousemove', x: 100, y: row, native: null }, replay: false, inChartArea: true }, {}));
+  await act(async () => plugin.afterEvent!(chart, { event: { type, x: 100, y: row, native: null }, replay: false, inChartArea: true }, {}));
 };
 
 it('uses two distinct markers per model, null single-side gaps, and one zero-based axis', async () => {
@@ -50,6 +50,9 @@ it('shows complete model name and accurate two half time ranges with means and s
   expect(tooltip.textContent).toContain('40.0 t/s');
   expect(tooltip.textContent).toContain('80.0 t/s');
   expect(tooltip.querySelectorAll('li')).toHaveLength(2);
+  expect(tooltip.querySelector('li strong')!.textContent).toBe('usage_stats.model_speed_first_half');
+  expect(tooltip.querySelector('li small')!.textContent).toBe('12:00:00 – 12:07:30 · usage_stats.model_speed_samples: 3');
+  expect(tooltip.textContent).not.toContain('10/08/2026');
   await hover(0);
   expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('usage_stats.no_data');
   expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).not.toContain('0.0 t/s');
@@ -68,6 +71,28 @@ it('retains the registered plugin while response refresh updates values and sele
   expect(captured.data.datasets[2].label).toBe('both-halves');
   await hover(1, initial);
   expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('200.0 t/s');
+});
+
+it('lets the pointer pass through the tooltip, follows the next model and closes on canvas leave', async () => {
+  await render();
+  await hover(1);
+  const tooltip = document.querySelector<HTMLElement>('[data-model-speed-tooltip]')!;
+  expect(getComputedStyle(tooltip).pointerEvents).toBe('none');
+  expect(tooltip.querySelector('button')).toBeNull();
+  await hover(2);
+  expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('second-only');
+  await hover(2, captured.plugins[0], 'mouseout');
+  expect(document.querySelector('[data-model-speed-tooltip]')).toBeNull();
+});
+
+it('keeps a touch-selected model open on canvas leave and dismisses on an outside tap', async () => {
+  await render();
+  await act(async () => container.querySelector('canvas')!.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })));
+  await hover(1, captured.plugins[0], 'click');
+  await hover(1, captured.plugins[0], 'mouseout');
+  expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('both-halves');
+  await act(async () => document.body.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })));
+  expect(document.querySelector('[data-model-speed-tooltip]')).toBeNull();
 });
 
 it('shows cache-unavailable and explicit-empty selection states without zero speed data', async () => {

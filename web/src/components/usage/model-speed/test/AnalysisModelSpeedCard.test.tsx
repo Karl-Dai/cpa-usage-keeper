@@ -27,7 +27,7 @@ describe('Analysis model speed card', () => {
   beforeEach(() => { localStorage.clear(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
   const render = async (response = speed) => { await act(async () => root.render(<AnalysisModelSpeedCard speed={response} loading={false} isDark={false} isMobile={false} timezone="Asia/Shanghai" />)); };
-  const event = async (x: number, y = 100, type: 'mousemove' | 'click' = 'mousemove', plugin = captured.plugins[0]) => {
+  const event = async (x: number, y = 100, type: 'mousemove' | 'click' | 'mouseout' = 'mousemove', plugin = captured.plugins[0]) => {
     const chart = { canvas: container.querySelector('canvas'), chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { x: { getValueForPixel: (value: number) => value } } } as unknown as Chart<'scatter'>;
     await act(async () => plugin.afterEvent!(chart, { event: { type, x, y, native: null }, replay: false, inChartArea: true }, {}));
   };
@@ -77,6 +77,28 @@ describe('Analysis model speed card', () => {
     expect(captured.plugins[0]).toBe(originalPlugin);
     await event(0, 100, 'mousemove', originalPlugin);
     expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('200.0 t/s');
+  });
+
+  it('lets the pointer pass through the tooltip, follows the next time group and closes on canvas leave', async () => {
+    await render();
+    await event(0.3);
+    const tooltip = document.querySelector<HTMLElement>('[data-model-speed-tooltip]')!;
+    expect(getComputedStyle(tooltip).pointerEvents).toBe('none');
+    expect(tooltip.querySelector('button')).toBeNull();
+    await event(1.25);
+    expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('06:00');
+    await event(1.25, 100, 'mouseout');
+    expect(document.querySelector('[data-model-speed-tooltip]')).toBeNull();
+  });
+
+  it('keeps a touch-selected time group open on canvas leave and dismisses on an outside tap', async () => {
+    await render();
+    await act(async () => container.querySelector('canvas')!.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })));
+    await event(0.3, 100, 'click');
+    await event(0.3, 100, 'mouseout');
+    expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('80.0 t/s');
+    await act(async () => document.body.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })));
+    expect(document.querySelector('[data-model-speed-tooltip]')).toBeNull();
   });
 
   it('shows no data when the current range offers no models to choose', async () => {

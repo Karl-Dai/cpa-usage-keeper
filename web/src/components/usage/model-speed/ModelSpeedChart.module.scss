@@ -36,9 +36,33 @@
 }
 
 .tooltip {
+  position: absolute;
   // 模型选择菜单沿用 Select 的层级；速度 Tooltip 在它下方，并在打开菜单时隐藏。
   z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-style: solid;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
+
+.tooltipTitle { font-weight: 700; }
+
+.tooltipRows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 6px; }
+}
+
+.tooltipDot { width: 8px; height: 8px; margin-top: 3px; border-radius: 50%; }
+.tooltipSecondary { font-size: 11px; }
 
 .realtimeHeader:global(.keeper-card-heading) {
   margin-bottom: 0;

@@ -58,3 +58,19 @@ export function formatModelSpeedTime(timestamp: string, timezone: string, locale
     }).format(new Date(timestamp));
   } catch { return timestamp.replace('T', ' ').slice(0, 16); }
 }
+
+export function formatModelSpeedTimeRange(start: string | undefined, end: string | undefined, timezone: string, locale: string) {
+  if (!start || !end) return '';
+  try {
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const dayFormat = new Intl.DateTimeFormat(locale, { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    // 按响应时区判断跨日，同日只留时分秒，跨日补月日以区分两端。
+    const crossesDay = dayFormat.format(startDate) !== dayFormat.format(endDate);
+    const format = new Intl.DateTimeFormat(locale, {
+      timeZone: timezone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+      ...(crossesDay ? { month: '2-digit' as const, day: '2-digit' as const } : {}),
+    });
+    return `${format.format(startDate)} – ${format.format(endDate)}`;
+  } catch { return `${start} – ${end}`; }
+}
