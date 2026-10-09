@@ -27,10 +27,10 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
   isDark: boolean;
   isMobile: boolean;
   timezone?: string;
-  preferenceScope?: string;
+  preferenceScope?: string | null;
 }) {
   const { t, i18n } = useTranslation();
-  const speed = useMemo(() => mergeModelSpeedBuckets(response ?? EMPTY_SPEED), [response]);
+  const speed = useMemo(() => mergeModelSpeedBuckets(response ?? EMPTY_SPEED, isMobile ? 4 : 8), [response, isMobile]);
   const { selected, colors, candidates, choose, reset } = useModelSpeedSelection('analysis', preferenceScope, speed.series);
   const theme = useMemo(() => getUsageChartTheme(isDark), [isDark]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);

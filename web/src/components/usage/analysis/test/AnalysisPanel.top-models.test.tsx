@@ -142,7 +142,7 @@ const readVerticalGradientStops = (backgroundColor: unknown) => {
 describe('AnalysisPanel Top Models card', () => {
   beforeEach(() => {
     chartCapture.bars = [];
-    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as MediaQueryList);
   });
 
   afterEach(() => vi.restoreAllMocks());

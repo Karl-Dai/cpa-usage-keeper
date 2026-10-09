@@ -6,7 +6,7 @@ import { modelSpeedStorageKey, useModelSpeedSelection, type ModelSpeedCandidate,
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let latest: ReturnType<typeof useModelSpeedSelection>;
-function Harness({ candidates, scope = 'admin', view = 'analysis' }: { candidates: ModelSpeedCandidate[]; scope?: string; view?: ModelSpeedView }) {
+function Harness({ candidates, scope = 'admin', view = 'analysis' }: { candidates: ModelSpeedCandidate[]; scope?: string | null; view?: ModelSpeedView }) {
   const result = useModelSpeedSelection(view, scope, candidates);
   useEffect(() => { latest = result; }, [result]);
   return null;
@@ -22,7 +22,7 @@ describe('model speed selection preferences', () => {
   let root: Root;
   beforeEach(() => { localStorage.clear(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
-  const render = async (items: ModelSpeedCandidate[], scope = 'admin', view: ModelSpeedView = 'analysis') => {
+  const render = async (items: ModelSpeedCandidate[], scope: string | null = 'admin', view: ModelSpeedView = 'analysis') => {
     await act(async () => root.render(<Harness candidates={items} scope={scope} view={view} />));
   };
 
@@ -74,6 +74,14 @@ describe('model speed selection preferences', () => {
     expect(latest.selected).toEqual(['custom']);
     await render(candidates, 'key:42');
     expect(latest.selected).toEqual([]);
+  });
+
+  it('keeps legacy viewer selections temporary when no stable id is available', async () => {
+    await render(candidates, null);
+    expect(latest.selected.length).toBe(5);
+    await act(async () => latest.choose(['temporary']));
+    expect(latest.selected).toEqual(['temporary']);
+    expect(localStorage.length).toBe(0);
   });
 
   it('recovers malformed storage and limits saved selections without discarding absent models', async () => {

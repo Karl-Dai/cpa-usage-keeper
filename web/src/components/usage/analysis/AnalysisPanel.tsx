@@ -12,6 +12,7 @@ import { compositionGeometryPlugin } from './compositionGeometry';
 import { AnalysisRankingList, getAnalysisRankingColor, useAnalysisHighlight, type AnalysisRankingItem } from './analysisRanking';
 import { useTopModelsTooltip } from './topModelsTooltip';
 import styles from './AnalysisPanel.module.scss';
+import { AnalysisModelSpeedCard } from '../model-speed/AnalysisModelSpeedCard';
 import { LatencyScatterChart } from '../LatencyScatterChart';
 
 interface AnalysisPanelProps {
@@ -23,6 +24,7 @@ interface AnalysisPanelProps {
   isDark: boolean;
   isMobile: boolean;
   compositionDimensions?: readonly AnalysisCompositionDimension[];
+  modelSpeedPreferenceScope?: string | null;
 }
 
 export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider';
@@ -1692,6 +1694,7 @@ export function AnalysisPanel({
   isDark,
   isMobile,
   compositionDimensions = DEFAULT_COMPOSITION_DIMENSIONS,
+  modelSpeedPreferenceScope = 'admin',
 }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
@@ -1726,8 +1729,9 @@ export function AnalysisPanel({
           isMobile={isMobile}
         />
       </div>
+      <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
-        <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
+        <AnalysisModelSpeedCard speed={analysis?.model_speed} loading={loading} isDark={isDark} isMobile={isMobile} timezone={analysis?.timezone} preferenceScope={modelSpeedPreferenceScope} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />

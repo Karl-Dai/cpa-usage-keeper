@@ -19,6 +19,14 @@ describe('Analysis model speed groups', () => {
     expect(speed.series[0].samples[0].speed_sample_count).toBe(1);
   });
 
+  it('merges the four mobile display groups using sum/count', () => {
+    const grouped = mergeModelSpeedBuckets(fixture(), 4);
+    expect(grouped.buckets).toHaveLength(4);
+    expect(grouped.buckets[0].end).toBe('2026-10-04T00:00:00+08:00');
+    expect(grouped.series[0].samples[0].speed_sample_count).toBe(3);
+    expect(grouped.series[0].samples[0].mean_tps).toBeCloseTo(40);
+  });
+
   it('uses supplied DST boundaries without assuming a 24-hour natural day', () => {
     const speed = fixture();
     speed.buckets[0] = { start: '2026-03-07T00:00:00-05:00', end: '2026-03-08T00:00:00-05:00' };

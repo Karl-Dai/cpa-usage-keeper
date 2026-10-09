@@ -2224,6 +2224,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 {analysisError && <div className={styles.errorBox}>{analysisError === 'COSTS_BUSY' ? t('usage_stats.costs_busy') : analysisError}</div>}
                 <AnalysisPanel
                   analysis={visibleAnalysis}
+                  modelSpeedPreferenceScope={isEmbeddedInCPAMC ? 'admin:embed' : 'admin'}
                   loading={(analysisLoading || analysisError === 'COSTS_BUSY') && !visibleAnalysis}
                   latencyDiagnostics={analysisLatencyData}
                   latencyLoading={analysisLatencyLoading}

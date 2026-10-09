@@ -1,4 +1,5 @@
-.header {
+.header:global(.keeper-card-heading) {
+  flex-direction: row;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;

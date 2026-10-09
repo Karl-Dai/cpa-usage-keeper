@@ -184,6 +184,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         isDark={isDark}
         isMobile={isMobile}
         compositionDimensions={['model']}
+        modelSpeedPreferenceScope={apiKey?.id ? `key-viewer:${apiKey.id}` : null}
       />
     </KeyViewerShell>
   );

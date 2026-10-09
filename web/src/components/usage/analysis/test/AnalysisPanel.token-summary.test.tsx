@@ -73,6 +73,7 @@ describe('AnalysisPanel token chart summary', () => {
       'usage_stats.analysis_composition_title',
       'usage_stats.analysis_top_models_title',
       'usage_stats.analysis_latency_title',
+      'usage_stats.analysis_model_speed_title',
       'usage_stats.analysis_model_efficiency_title',
       'usage_stats.analysis_heatmap_title',
     ]);

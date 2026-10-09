@@ -12,7 +12,8 @@ export function sortModelSpeedCandidates(candidates: readonly ModelSpeedCandidat
     || (left.model < right.model ? -1 : left.model > right.model ? 1 : 0));
 }
 
-function loadSelection(key: string): { models: string[]; colors: Record<string, number> } | null {
+function loadSelection(key: string | null): { models: string[]; colors: Record<string, number> } | null {
+  if (key === null) return null;
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
@@ -31,7 +32,8 @@ function loadSelection(key: string): { models: string[]; colors: Record<string, 
   } catch { return null; }
 }
 
-function persistSelection(key: string, models: readonly string[], colors: Readonly<Record<string, number>>) {
+function persistSelection(key: string | null, models: readonly string[], colors: Readonly<Record<string, number>>) {
+  if (key === null) return;
   try { localStorage.setItem(key, JSON.stringify({ version: 1, models, colors })); }
   catch { /* 浏览器存储受限时继续保留本次选择。 */ }
 }
@@ -51,8 +53,8 @@ function assignColors(models: readonly string[], previous: Readonly<Record<strin
   return colors;
 }
 
-export function useModelSpeedSelection(view: ModelSpeedView, scope: string, candidates: readonly ModelSpeedCandidate[]) {
-  const storageKey = modelSpeedStorageKey(view, scope);
+export function useModelSpeedSelection(view: ModelSpeedView, scope: string | null, candidates: readonly ModelSpeedCandidate[]) {
+  const storageKey = scope === null ? null : modelSpeedStorageKey(view, scope);
   const sortedCandidates = useMemo(() => sortModelSpeedCandidates(candidates), [candidates]);
   const defaults = useMemo(() => sortedCandidates.slice(0, MODEL_SPEED_SELECTION_LIMIT).map((item) => item.model), [sortedCandidates]);
   const [state, setState] = useState(() => {

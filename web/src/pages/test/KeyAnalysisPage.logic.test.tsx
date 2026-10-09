@@ -28,7 +28,8 @@ vi.mock('@/features/key-viewer/KeyViewerShell', () => ({
 }));
 
 vi.mock('@/components/usage', () => ({
-  AnalysisPanel: ({ analysis, loading, latencyDiagnostics }: { analysis: AnalysisResponse | null; loading: boolean; latencyDiagnostics: AnalysisLatencyDiagnostics | null }) => <>
+  AnalysisPanel: ({ analysis, loading, latencyDiagnostics, modelSpeedPreferenceScope }: { modelSpeedPreferenceScope: string | null; analysis: AnalysisResponse | null; loading: boolean; latencyDiagnostics: AnalysisLatencyDiagnostics | null }) => <>
+    <div data-testid="model-speed-scope">{modelSpeedPreferenceScope ?? 'temporary'}</div>
     <div data-testid="analysis">{analysis?.timezone ?? 'empty'}</div>
     <div data-testid="analysis-cost">{analysis?.cost_summary.total_cost_usd ?? 'missing'}</div>
     <div data-testid="analysis-loading">{String(loading)}</div>
@@ -219,4 +220,15 @@ describe('KeyAnalysisPage requests', () => {
     expect(container.querySelector('[data-testid="analysis-cost"]')?.textContent).toBe('missing');
     expect(apiMocks.fetchKeyAnalysis).toHaveBeenCalledTimes(3);
   });
+  it('scopes speed preferences by stable viewer id even for an empty window', async () => {
+    apiMocks.fetchKeyAnalysis.mockResolvedValue(analysisResponse('UTC'));
+    apiMocks.fetchKeyAnalysisLatency.mockResolvedValue(latencyResponse);
+    await act(async () => root.render(<KeyAnalysisPage apiKey={{ id: '42', display_key: 'same-masked-key', alias: 'one' }} onNavigate={vi.fn()} />));
+    expect(container.querySelector('[data-testid="model-speed-scope"]')?.textContent).toBe('key-viewer:42');
+    await act(async () => root.render(<KeyAnalysisPage apiKey={{ id: '99', display_key: 'same-masked-key', alias: 'two' }} onNavigate={vi.fn()} />));
+    expect(container.querySelector('[data-testid="model-speed-scope"]')?.textContent).toBe('key-viewer:99');
+    await act(async () => root.render(<KeyAnalysisPage apiKey={{ display_key: 'same-masked-key' }} onNavigate={vi.fn()} />));
+    expect(container.querySelector('[data-testid="model-speed-scope"]')?.textContent).toBe('temporary');
+  });
+
 });

@@ -30,7 +30,7 @@ const fixture = (): AnalysisResponse => {
 describe('paired analysis chart details', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as MediaQueryList);
   });
   afterEach(() => vi.restoreAllMocks());
 
