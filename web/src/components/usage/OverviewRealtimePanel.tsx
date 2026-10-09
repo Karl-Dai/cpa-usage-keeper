@@ -61,6 +61,7 @@ interface OverviewRealtimePanelProps {
   timezone?: string;
   visibleDimensions?: readonly RealtimeDimensionKey[];
   modelSpeedPreferenceScope?: string | null;
+  modelSpeedQueryKey?: string;
 }
 
 const REALTIME_WINDOWS: OverviewRealtimeWindow[] = ['15m', '30m', '60m'];
@@ -530,7 +531,7 @@ function RealtimeChartFrame({ loading, emptyLabel, children }: { loading: boolea
   );
 }
 
-export function OverviewRealtimePanel({ realtime, loading, error, window, onWindowChange, isDark, isMobile, timezone, visibleDimensions = DEFAULT_VISIBLE_DIMENSIONS, modelSpeedPreferenceScope = 'admin' }: OverviewRealtimePanelProps) {
+export function OverviewRealtimePanel({ realtime, loading, error, window, onWindowChange, isDark, isMobile, timezone, visibleDimensions = DEFAULT_VISIBLE_DIMENSIONS, modelSpeedPreferenceScope = 'admin', modelSpeedQueryKey = window }: OverviewRealtimePanelProps) {
   const { t } = useTranslation();
   const data = realtime ?? emptyRealtime(window);
   const initialLoading = loading && !realtime;
@@ -683,7 +684,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
           </div>
 
           <div className={styles.overviewRealtimeResponseUsageRow}>
-            <RealtimeModelSpeedCard speed={data.model_speed} loading={loading && !realtime} isDark={isDark} isMobile={isMobile} timezone={data.timezone ?? timezone} preferenceScope={modelSpeedPreferenceScope} />
+            <RealtimeModelSpeedCard speed={realtime?.window === window ? data.model_speed : undefined} loading={(loading && !realtime) || Boolean(realtime && realtime.window !== window)} isDark={isDark} isMobile={isMobile} timezone={data.timezone ?? timezone} preferenceScope={modelSpeedPreferenceScope} queryKey={modelSpeedQueryKey} />
             <RealtimeCard
               title={t('usage_stats.overview_realtime_cache_level')}
               metrics={metricChips(cacheValues, (value) => `${formatFixedTwoDecimals(value)}%`, averageLabel, latestLabel, trendLabel)}

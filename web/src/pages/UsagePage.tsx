@@ -972,7 +972,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
   const analysisLoadedScopeRef = useRef<string | null>(null);
-  const visibleAnalysis = analysisLoadedScopeRef.current === JSON.stringify([usageRangeQuery, requestApiKeyId]) ? analysisData : null;
+  const analysisQueryKey = JSON.stringify([usageRangeQuery, requestApiKeyId]);
+  const visibleAnalysis = analysisLoadedScopeRef.current === analysisQueryKey ? analysisData : null;
   const [analysisLatencyLoading, setAnalysisLatencyLoading] = useState(false);
   const [analysisLatencyError, setAnalysisLatencyError] = useState('');
   const [analysisLatencyData, setAnalysisLatencyData] = useState<AnalysisLatencyDiagnostics | null>(null);
@@ -2210,6 +2211,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               <OverviewRealtimePanel
                 realtime={currentRealtime ?? undefined}
                 modelSpeedPreferenceScope={isEmbeddedInCPAMC ? 'admin:embed' : 'admin'}
+                modelSpeedQueryKey={JSON.stringify([realtimeWindow, requestApiKeyId])}
                 loading={realtimeLoading}
                 error={displayRealtimeError}
                 window={realtimeWindow}
@@ -2226,6 +2228,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 <AnalysisPanel
                   analysis={visibleAnalysis}
                   modelSpeedPreferenceScope={isEmbeddedInCPAMC ? 'admin:embed' : 'admin'}
+                  modelSpeedQueryKey={analysisQueryKey}
                   loading={(analysisLoading || analysisError === 'COSTS_BUSY') && !visibleAnalysis}
                   latencyDiagnostics={analysisLatencyData}
                   latencyLoading={analysisLatencyLoading}

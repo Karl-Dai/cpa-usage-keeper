@@ -6,8 +6,8 @@ import { modelSpeedStorageKey, useModelSpeedSelection, type ModelSpeedCandidate,
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let latest: ReturnType<typeof useModelSpeedSelection>;
-function Harness({ candidates, scope = 'admin', view = 'analysis' }: { candidates: ModelSpeedCandidate[]; scope?: string | null; view?: ModelSpeedView }) {
-  const result = useModelSpeedSelection(view, scope, candidates);
+function Harness({ candidates, scope = 'admin', view = 'analysis', queryKey = 'query-a', ready = true }: { candidates: ModelSpeedCandidate[]; scope?: string | null; view?: ModelSpeedView; queryKey?: string; ready?: boolean }) {
+  const result = useModelSpeedSelection(view, scope, candidates, queryKey, ready);
   useEffect(() => { latest = result; }, [result]);
   return null;
 }
@@ -22,8 +22,8 @@ describe('model speed selection preferences', () => {
   let root: Root;
   beforeEach(() => { localStorage.clear(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
-  const render = async (items: ModelSpeedCandidate[], scope: string | null = 'admin', view: ModelSpeedView = 'analysis') => {
-    await act(async () => root.render(<Harness candidates={items} scope={scope} view={view} />));
+  const render = async (items: ModelSpeedCandidate[], scope: string | null = 'admin', view: ModelSpeedView = 'analysis', queryKey = 'query-a', ready = true) => {
+    await act(async () => root.render(<Harness candidates={items} scope={scope} view={view} queryKey={queryKey} ready={ready} />));
   };
 
   it('initializes once when data arrives, orders by total tokens and uses the current ranking on reset', async () => {
@@ -91,5 +91,43 @@ describe('model speed selection preferences', () => {
     localStorage.setItem(modelSpeedStorageKey('analysis', 'key:42'), JSON.stringify({ version: 1, models: ['unknown', 'unknown', 'one', 'two', 'three', 'four', 'five'] }));
     await render(candidates, 'key:42');
     expect(latest.selected).toEqual(['unknown', 'one', 'two', 'three', 'four']);
+  });
+
+  it('reselects auto defaults only for a new query after its current response arrives', async () => {
+    await render(candidates);
+    expect(latest.mode).toBe('auto');
+    const next = [{ model: 'new', total_tokens: 9000 }, ...candidates];
+    await render(next);
+    expect(latest.selected).toEqual(['a', 'b', 'c', 'd', 'e']);
+    await render(candidates, 'admin', 'analysis', 'query-b', false);
+    expect(latest.selected).toEqual([]);
+    await render(next, 'admin', 'analysis', 'query-b');
+    expect(latest.selected).toEqual(['new', 'a', 'b', 'c', 'd']);
+    expect(JSON.parse(localStorage.getItem(modelSpeedStorageKey('analysis', 'admin'))!).mode).toBe('auto');
+  });
+
+  it('initializes auto after an empty query later receives its first candidates', async () => {
+    await render(candidates);
+    await render([], 'admin', 'analysis', 'empty-query');
+    expect(latest.selected).toEqual([]);
+    await render([{ model: 'arrived', total_tokens: 10 }], 'admin', 'analysis', 'empty-query');
+    expect(latest.selected).toEqual(['arrived']);
+  });
+
+  it('keeps manual and legacy selections across queries until reset restores auto mode', async () => {
+    localStorage.setItem(modelSpeedStorageKey('analysis', 'admin'), JSON.stringify({ version: 1, models: ['legacy'] }));
+    await render(candidates);
+    expect(latest.mode).toBe('manual');
+    await render(candidates, 'admin', 'analysis', 'query-b');
+    expect(latest.selected).toEqual(['legacy']);
+    await act(async () => latest.choose([]));
+    await render(candidates, 'admin', 'analysis', 'query-c');
+    expect(latest.selected).toEqual([]);
+    expect(latest.mode).toBe('manual');
+    await act(async () => latest.reset());
+    expect(latest.mode).toBe('auto');
+    expect(latest.selected).toEqual(['a', 'b', 'c', 'd', 'e']);
+    await render([{ model: 'next-query', total_tokens: 1 }], 'admin', 'analysis', 'query-d');
+    expect(latest.selected).toEqual(['next-query']);
   });
 });

@@ -26,6 +26,7 @@ interface AnalysisPanelProps {
   isMobile: boolean;
   compositionDimensions?: readonly AnalysisCompositionDimension[];
   modelSpeedPreferenceScope?: string | null;
+  modelSpeedQueryKey?: string;
 }
 
 export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider';
@@ -1655,6 +1656,7 @@ export function AnalysisPanel({
   isMobile,
   compositionDimensions = DEFAULT_COMPOSITION_DIMENSIONS,
   modelSpeedPreferenceScope = 'admin',
+  modelSpeedQueryKey = '',
 }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
@@ -1691,7 +1693,7 @@ export function AnalysisPanel({
       </div>
       <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
-        <AnalysisModelSpeedCard speed={analysis?.model_speed} granularity={analysis?.granularity ?? 'hourly'} loading={loading} isDark={isDark} isMobile={isMobile} timezone={analysis?.timezone} preferenceScope={modelSpeedPreferenceScope} />
+        <AnalysisModelSpeedCard speed={analysis?.model_speed} granularity={analysis?.granularity ?? 'hourly'} loading={loading} isDark={isDark} isMobile={isMobile} timezone={analysis?.timezone} preferenceScope={modelSpeedPreferenceScope} queryKey={modelSpeedQueryKey} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />

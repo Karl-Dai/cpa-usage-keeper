@@ -28,8 +28,9 @@ vi.mock('@/features/key-viewer/KeyViewerShell', () => ({
 }));
 
 vi.mock('@/components/usage', () => ({
-  AnalysisPanel: ({ analysis, loading, latencyDiagnostics, modelSpeedPreferenceScope }: { modelSpeedPreferenceScope: string | null; analysis: AnalysisResponse | null; loading: boolean; latencyDiagnostics: AnalysisLatencyDiagnostics | null }) => <>
+  AnalysisPanel: ({ analysis, loading, latencyDiagnostics, modelSpeedPreferenceScope, modelSpeedQueryKey }: { modelSpeedPreferenceScope: string | null; modelSpeedQueryKey: string; analysis: AnalysisResponse | null; loading: boolean; latencyDiagnostics: AnalysisLatencyDiagnostics | null }) => <>
     <div data-testid="model-speed-scope">{modelSpeedPreferenceScope ?? 'temporary'}</div>
+    <div data-testid="model-speed-query">{modelSpeedQueryKey}</div>
     <div data-testid="analysis">{analysis?.timezone ?? 'empty'}</div>
     <div data-testid="analysis-cost">{analysis?.cost_summary.total_cost_usd ?? 'missing'}</div>
     <div data-testid="analysis-loading">{String(loading)}</div>
@@ -208,17 +209,21 @@ describe('KeyAnalysisPage requests', () => {
     apiMocks.fetchKeyAnalysis.mockResolvedValueOnce(analysisResponse('UTC', 4.25))
       .mockRejectedValue(new ApiError('busy', 503, 'costs_busy'));
     apiMocks.fetchKeyAnalysisLatency.mockResolvedValue(latencyResponse);
-    const firstKey = { display_key: 'key-one' };
+    const firstKey = { id: '42', display_key: 'key-one' };
     await act(async () => root.render(<KeyAnalysisPage apiKey={firstKey} onNavigate={() => {}} />));
     expect(container.querySelector('[data-testid="analysis-cost"]')?.textContent).toBe('4.25');
+    const initialQuery = container.querySelector('[data-testid="model-speed-query"]')!.textContent;
 
     await act(async () => container.querySelector('[data-testid="range-control"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(container.querySelector('[data-testid="analysis-cost"]')?.textContent).toBe('missing');
+    const nextRangeQuery = container.querySelector('[data-testid="model-speed-query"]')!.textContent;
+    expect(nextRangeQuery).not.toBe(initialQuery);
     expect(container.textContent).toContain('key_analysis.costs_busy');
 
-    await act(async () => root.render(<KeyAnalysisPage apiKey={{ display_key: 'key-two' }} onNavigate={() => {}} />));
+    await act(async () => root.render(<KeyAnalysisPage apiKey={{ id: '99', display_key: 'key-two' }} onNavigate={() => {}} />));
     expect(container.querySelector('[data-testid="analysis-cost"]')?.textContent).toBe('missing');
     expect(apiMocks.fetchKeyAnalysis).toHaveBeenCalledTimes(3);
+    expect(container.querySelector('[data-testid="model-speed-query"]')!.textContent).not.toBe(nextRangeQuery);
   });
   it('scopes speed preferences by stable viewer id even for an empty window', async () => {
     apiMocks.fetchKeyAnalysis.mockResolvedValue(analysisResponse('UTC'));

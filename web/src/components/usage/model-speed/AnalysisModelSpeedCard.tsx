@@ -22,7 +22,7 @@ const colorAt = (slot: number | undefined, isDark: boolean) => {
   return isDark ? color.light : color.base;
 };
 
-export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly', loading, isDark, isMobile, timezone = 'UTC', preferenceScope = 'admin' }: {
+export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly', loading, isDark, isMobile, timezone = 'UTC', preferenceScope = 'admin', queryKey = '' }: {
   speed?: AnalysisModelSpeedPayload;
   granularity?: AnalysisResponse['granularity'];
   loading: boolean;
@@ -30,10 +30,11 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
   isMobile: boolean;
   timezone?: string;
   preferenceScope?: string | null;
+  queryKey?: string;
 }) {
   const { t, i18n } = useTranslation();
   const speed = useMemo(() => mergeModelSpeedBuckets(response ?? EMPTY_SPEED, isMobile ? 4 : 8), [response, isMobile]);
-  const { selected, colors, candidates, choose, reset } = useModelSpeedSelection('analysis', preferenceScope, speed.series);
+  const { selected, colors, candidates, choose, reset } = useModelSpeedSelection('analysis', preferenceScope, speed.series, queryKey, response !== undefined && !loading);
   const theme = useMemo(() => getUsageChartTheme(isDark), [isDark]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const touchInput = useRef(false);

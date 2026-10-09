@@ -22,18 +22,19 @@ const colorAt = (slot: number | undefined, isDark: boolean) => {
   return isDark ? color.light : color.base;
 };
 
-export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMobile, timezone = 'UTC', preferenceScope = 'admin' }: {
+export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMobile, timezone = 'UTC', preferenceScope = 'admin', queryKey = '' }: {
   speed?: RealtimeModelSpeedPayload;
   loading: boolean;
   isDark: boolean;
   isMobile: boolean;
   timezone?: string;
   preferenceScope?: string | null;
+  queryKey?: string;
 }) {
   const { t, i18n } = useTranslation();
   const speed = response ?? EMPTY_SPEED;
   const initialLoading = loading && !response;
-  const { selected, colors, candidates, choose, reset } = useModelSpeedSelection('realtime', preferenceScope, speed.series);
+  const { selected, colors, candidates, choose, reset } = useModelSpeedSelection('realtime', preferenceScope, speed.series, queryKey, response !== undefined && !loading);
   const theme = useMemo(() => getUsageChartTheme(isDark), [isDark]);
   const models = useMemo(() => new Map(speed.series.map((series) => [series.model, series])), [speed]);
   const locale = i18n?.language ?? 'en';

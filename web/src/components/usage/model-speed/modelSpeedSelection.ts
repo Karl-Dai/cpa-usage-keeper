@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 export const MODEL_SPEED_SELECTION_LIMIT = 5;
 export type ModelSpeedCandidate = { model: string; total_tokens: number };
 export type ModelSpeedView = 'analysis' | 'realtime';
+type SelectionMode = 'auto' | 'manual';
+type Selection = { mode: SelectionMode; models: string[]; colors: Record<string, number> };
 
 export const modelSpeedStorageKey = (view: ModelSpeedView, scope: string) =>
   `cpa-usage-keeper-model-speed-v1:${view}:${scope}`;
@@ -12,7 +14,7 @@ export function sortModelSpeedCandidates(candidates: readonly ModelSpeedCandidat
     || (left.model < right.model ? -1 : left.model > right.model ? 1 : 0));
 }
 
-function loadSelection(key: string | null): { models: string[]; colors: Record<string, number> } | null {
+function loadSelection(key: string | null): Selection | null {
   if (key === null) return null;
   try {
     const raw = localStorage.getItem(key);
@@ -28,13 +30,14 @@ function loadSelection(key: string | null): { models: string[]; colors: Record<s
         if (typeof index === 'number' && Number.isInteger(index) && index >= 0 && index < MODEL_SPEED_SELECTION_LIMIT) saved[model] = index;
       }
     }
-    return { models, colors: assignColors(models, saved) };
+    // 旧记录没有模式，无法判断是默认还是手选；保守保留为手选，恢复默认时再切到 auto。
+    return { mode: 'mode' in value && value.mode === 'auto' ? 'auto' : 'manual', models, colors: assignColors(models, saved) };
   } catch { return null; }
 }
 
-function persistSelection(key: string | null, models: readonly string[], colors: Readonly<Record<string, number>>) {
+function persistSelection(key: string | null, mode: SelectionMode, models: readonly string[], colors: Readonly<Record<string, number>>) {
   if (key === null) return;
-  try { localStorage.setItem(key, JSON.stringify({ version: 1, models, colors })); }
+  try { localStorage.setItem(key, JSON.stringify({ version: 1, mode, models, colors })); }
   catch { /* 浏览器存储受限时继续保留本次选择。 */ }
 }
 
@@ -53,31 +56,40 @@ function assignColors(models: readonly string[], previous: Readonly<Record<strin
   return colors;
 }
 
-export function useModelSpeedSelection(view: ModelSpeedView, scope: string | null, candidates: readonly ModelSpeedCandidate[]) {
+export function useModelSpeedSelection(view: ModelSpeedView, scope: string | null, candidates: readonly ModelSpeedCandidate[], queryKey = '', ready = true) {
   const storageKey = scope === null ? null : modelSpeedStorageKey(view, scope);
   const sortedCandidates = useMemo(() => sortModelSpeedCandidates(candidates), [candidates]);
   const defaults = useMemo(() => sortedCandidates.slice(0, MODEL_SPEED_SELECTION_LIMIT).map((item) => item.model), [sortedCandidates]);
-  const [state, setState] = useState(() => {
+  const loadState = () => {
     const saved = loadSelection(storageKey);
-    return { key: storageKey, models: saved?.models ?? null, colors: saved?.colors ?? {} };
-  });
-  // 切换 Viewer 时同步重置作用域；只在首次有候选数据时自动选默认，显式空选不会重新初始化。
+    const mode = saved?.mode ?? 'auto';
+    return { key: storageKey, queryKey, mode, models: mode === 'manual' ? saved!.models : null, colors: saved?.colors ?? {} };
+  };
+  const [state, setState] = useState(loadState);
+  // auto 在新条件的有效响应到达后只初始化一次；空响应继续等待，手选与显式空选不受条件变化影响。
   if (state.key !== storageKey) {
-    const saved = loadSelection(storageKey);
-    setState({ key: storageKey, models: saved?.models ?? null, colors: saved?.colors ?? {} });
-  } else if (state.models === null && defaults.length > 0) {
-    setState({ key: storageKey, models: defaults, colors: assignColors(defaults) });
+    setState(loadState());
+  } else if (state.mode === 'auto' && state.queryKey !== queryKey) {
+    setState({ ...state, queryKey, models: null });
+  } else if (state.mode === 'auto' && state.models === null && ready && defaults.length > 0) {
+    setState({ ...state, models: defaults, colors: assignColors(defaults, state.colors) });
   }
   useEffect(() => {
-    if (state.key === storageKey && state.models !== null) persistSelection(storageKey, state.models, state.colors);
+    if (state.key === storageKey && state.models !== null) persistSelection(storageKey, state.mode, state.models, state.colors);
   }, [state, storageKey]);
 
   const choose = useCallback((models: string[]) => {
     const next = [...new Set(models)].slice(0, MODEL_SPEED_SELECTION_LIMIT);
     const colors = assignColors(next, state.key === storageKey ? state.colors : {});
-    persistSelection(storageKey, next, colors);
-    setState({ key: storageKey, models: next, colors });
-  }, [state.colors, state.key, storageKey]);
+    persistSelection(storageKey, 'manual', next, colors);
+    setState({ key: storageKey, queryKey, mode: 'manual', models: next, colors });
+  }, [state.colors, state.key, storageKey, queryKey]);
+  const reset = useCallback(() => {
+    const next = ready && defaults.length > 0 ? defaults : null;
+    const colors = assignColors(next ?? [], state.key === storageKey ? state.colors : {});
+    persistSelection(storageKey, 'auto', next ?? [], colors);
+    setState({ key: storageKey, queryKey, mode: 'auto', models: next, colors });
+  }, [defaults, ready, state.colors, state.key, storageKey, queryKey]);
 
-  return { selected: state.models ?? [], colors: state.colors, candidates: sortedCandidates, choose, reset: () => choose(defaults) };
+  return { selected: state.models ?? [], mode: state.mode, colors: state.colors, candidates: sortedCandidates, choose, reset };
 }

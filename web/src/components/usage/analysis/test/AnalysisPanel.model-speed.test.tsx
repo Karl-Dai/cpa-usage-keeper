@@ -19,7 +19,7 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 
 it('places full-width latency before a speed/efficiency row and forwards the same analysis response', async () => {
   const speed = { buckets: [{ start: '2026-10-08T00:00:00+08:00', end: '2026-10-08T03:00:00+08:00' }], series: [] };
-  await act(async () => root.render(<AnalysisPanel analysis={{ ...emptyAnalysis, granularity: 'daily', timezone: 'Asia/Shanghai', model_speed: speed }} loading={false} isDark isMobile={false} />));
+  await act(async () => root.render(<AnalysisPanel analysis={{ ...emptyAnalysis, granularity: 'daily', timezone: 'Asia/Shanghai', model_speed: speed }} loading={false} isDark isMobile={false} modelSpeedQueryKey="range:key42" />));
   const latency = Array.from(container.querySelectorAll('section')).find((section) => section.textContent?.includes('usage_stats.analysis_latency_title'))!;
   const speedCard = container.querySelector('[data-model-speed-card]')!;
   expect(latency.parentElement).toBe(container.firstElementChild);
@@ -29,6 +29,7 @@ it('places full-width latency before a speed/efficiency row and forwards the sam
   expect(speedProps.timezone).toBe('Asia/Shanghai');
   expect(speedProps.granularity).toBe('daily');
   expect(speedProps.preferenceScope).toBe('admin');
+  expect(speedProps.queryKey).toBe('range:key42');
 });
 
 it('forwards key viewer preference scope and the loading state through the shared panel', async () => {

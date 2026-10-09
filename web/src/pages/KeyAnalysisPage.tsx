@@ -185,6 +185,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         isMobile={isMobile}
         compositionDimensions={['model']}
         modelSpeedPreferenceScope={apiKey?.id ? `key-viewer:${apiKey.id}` : null}
+        modelSpeedQueryKey={JSON.stringify([rangeKey, apiKey?.id ?? null])}
       />
     </KeyViewerShell>
   );
