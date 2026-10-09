@@ -1,6 +1,7 @@
 export type AuthRole = 'admin' | 'api_key_viewer'
 
 export interface AuthSessionAPIKeySummary {
+  id?: string
   display_key: string
   alias?: string
 }
