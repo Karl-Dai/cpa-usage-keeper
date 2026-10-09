@@ -24,7 +24,7 @@ export function ModelSpeedTooltip({ canvasRef, x, y, touch, theme, title, rows, 
     const height = viewport?.height ?? window.innerHeight;
     const leftEdge = (viewport?.offsetLeft ?? 0) + 8;
     const topEdge = (viewport?.offsetTop ?? 0) + 8;
-    panel.style.width = `${Math.min(360, width - 16)}px`;
+    panel.style.maxWidth = `${width - 16}px`;
     const bounds = panel.getBoundingClientRect();
     const rightEdge = leftEdge + width - 16;
     const bottomEdge = topEdge + height - 16;

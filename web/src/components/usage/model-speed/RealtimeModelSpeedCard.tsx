@@ -6,8 +6,9 @@ import { Scatter } from 'react-chartjs-2';
 import type { RealtimeModelSpeedPayload } from '@/lib/types';
 import { formatCompactNumber } from '@/utils/usage';
 import { getUsageChartTheme, USAGE_CHART_COMPOSITION_COLORS } from '@/utils/usage/chartConfig';
-import { formatModelSpeedTimeRange, modelSpeedBucketIndex, modelSpeedMean } from './analysisModelSpeed';
+import { formatModelSpeedTimeRange, modelSpeedBucketIndex, modelSpeedMean, modelSpeedCombinedMean } from './analysisModelSpeed';
 import { ModelSpeedPicker } from './ModelSpeedPicker';
+import { ModelSpeedLegend } from './ModelSpeedLegend';
 import { ModelSpeedTooltip } from './ModelSpeedTooltip';
 import { useModelSpeedSelection } from './modelSpeedSelection';
 import panelStyles from '../analysis/AnalysisPanel.module.scss';
@@ -141,8 +142,12 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
       detail: mean === null ? t('usage_stats.no_data') : `${mean.toFixed(1)} t/s`,
       secondary: `${formatModelSpeedTimeRange(start, end, timezone, locale)} · ${t('usage_stats.model_speed_samples', { samples: (sample?.speed_sample_count ?? 0).toLocaleString(locale) })}` };
   }) : [];
+  const legendItems = selected.map((model) => {
+    const series = models.get(model);
+    return { model, color: colorAt(colors[model], isDark), mean: modelSpeedCombinedMean([series?.first_half, series?.second_half]) };
+  });
 
-  return <section className={`${usageStyles.overviewRealtimeCard} keeper-card-surface`} data-realtime-model-speed aria-busy={loading}>
+  return <section className={`${usageStyles.overviewRealtimeCard} ${styles.card} keeper-card-surface`} data-realtime-model-speed aria-busy={loading}>
     <div className={`${styles.header} ${styles.realtimeHeader} keeper-card-heading`}>
       <div className="keeper-card-title-track"><h3 className="keeper-card-title">{t('usage_stats.realtime_model_speed_title')}</h3></div>
       <ModelSpeedPicker candidates={candidates} selected={selected} onChange={choose} onReset={reset} disabled={initialLoading} onOpenChange={changePickerOpen} />
@@ -159,12 +164,7 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
           onPointerMove={(event) => { if (event.pointerType === 'mouse') touchInput.current = false; }}>
           <Scatter data={chartData} options={chartOptions} plugins={[plugin]} />
         </div>}
-      {selected.length > 0 && <div className={`${panelStyles.analysisChartLegend} ${styles.legend}`}>
-        {selected.map((model) => <span key={model} className={panelStyles.analysisLegendItem} title={model}>
-          <span className={panelStyles.analysisLegendDot} style={{ backgroundColor: colorAt(colors[model], isDark) }} aria-hidden="true" />
-          <span className={panelStyles.analysisLegendLabel}>{model}</span>
-        </span>)}
-      </div>}
+      <ModelSpeedLegend items={legendItems} />
     </div>
     {visibleHover && <ModelSpeedTooltip canvasRef={canvasRef} x={visibleHover.x} y={visibleHover.y} touch={visibleHover.touch} theme={theme}
       title={visibleHover.model} rows={tooltipRows} dismiss={dismiss} />}

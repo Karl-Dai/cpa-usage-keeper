@@ -6,6 +6,16 @@ export function modelSpeedMean(sample?: Pick<AnalysisModelSpeedSample, 'speed_tp
   return Number.isFinite(mean) ? mean : null;
 }
 
+export function modelSpeedCombinedMean(samples: readonly (Pick<AnalysisModelSpeedSample, 'speed_tps_sum' | 'speed_sample_count'> | undefined)[]) {
+  // 整体均速合并所有有效样本的 sum/count，不能平均各桶或两段的均值。
+  const total = { speed_tps_sum: 0, speed_sample_count: 0 };
+  for (const sample of samples) {
+    total.speed_tps_sum += sample?.speed_tps_sum ?? 0;
+    total.speed_sample_count += sample?.speed_sample_count ?? 0;
+  }
+  return modelSpeedMean(total);
+}
+
 // 按服务端真实时间边界合并连续组，始终先加 sum/count；不重新推算自然日长度。
 export function mergeModelSpeedBuckets(speed: AnalysisModelSpeedPayload, maximum = 8): AnalysisModelSpeedPayload {
   const count = speed.buckets.length;

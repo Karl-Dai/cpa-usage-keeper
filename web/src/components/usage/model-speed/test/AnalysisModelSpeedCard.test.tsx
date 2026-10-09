@@ -87,6 +87,17 @@ describe('Analysis model speed card', () => {
     expect(document.querySelector('[data-model-speed-tooltip] > strong')!.textContent).toBe('10/8 – 10/9');
   });
 
+  it('shows weighted whole-range means in the legend and keeps models with no samples unavailable', async () => {
+    const unequal = structuredClone(speed);
+    unequal.series[0].samples[1] = { speed_tps_sum: 80, speed_sample_count: 1, mean_tps: 80 };
+    await render(unequal);
+    const legend = container.querySelector('[data-model-speed-legend]')!;
+    const rows = Array.from(legend.querySelectorAll('li'));
+    expect(rows.find((row) => row.title === 'slow-model-full-name')!.textContent).toContain('50.0 t/s');
+    expect(rows.find((row) => row.title === 'no-speed-model')!.textContent).toContain('usage_stats.no_data');
+    expect(rows.find((row) => row.title === 'no-speed-model')!.textContent).not.toContain('0.0 t/s');
+  });
+
   it('keeps the registered plugin reading current selections and refreshed response data', async () => {
     await render();
     const originalPlugin = captured.plugins[0];

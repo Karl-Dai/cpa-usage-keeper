@@ -39,6 +39,15 @@ it('uses two distinct markers per model, null single-side gaps, and one zero-bas
   expect(captured.options.scales?.x?.min).toBe(0);
 });
 
+it('shows weighted whole-window means in the legend without averaging the two half means', async () => {
+  await render();
+  const legend = container.querySelector('[data-model-speed-legend]')!;
+  const rows = Array.from(legend.querySelectorAll('li'));
+  expect(rows.find((row) => row.title === 'both-halves')!.textContent).toContain('50.0 t/s');
+  expect(rows.find((row) => row.title === 'second-only')!.textContent).toContain('10.0 t/s');
+  expect(rows.find((row) => row.title === 'no-speed')!.textContent).toContain('usage_stats.no_data');
+});
+
 it('shows complete model name and accurate two half time ranges with means and sample counts', async () => {
   await render();
   await hover(1);

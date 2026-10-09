@@ -6,8 +6,9 @@ import { Scatter } from 'react-chartjs-2';
 import type { AnalysisModelSpeedPayload, AnalysisResponse } from '@/lib/types';
 import { formatCompactNumber } from '@/utils/usage';
 import { getUsageChartTheme, USAGE_CHART_COMPOSITION_COLORS } from '@/utils/usage/chartConfig';
-import { formatModelSpeedTimeRange, mergeModelSpeedBuckets, modelSpeedBucketIndex, modelSpeedMean, modelSpeedTooltipRows } from './analysisModelSpeed';
+import { formatModelSpeedTimeRange, mergeModelSpeedBuckets, modelSpeedBucketIndex, modelSpeedMean, modelSpeedCombinedMean, modelSpeedTooltipRows } from './analysisModelSpeed';
 import { ModelSpeedPicker } from './ModelSpeedPicker';
+import { ModelSpeedLegend } from './ModelSpeedLegend';
 import { ModelSpeedTooltip } from './ModelSpeedTooltip';
 import { useModelSpeedSelection } from './modelSpeedSelection';
 import { formatBucketLabel } from '../analysis/analysisTimeLabels';
@@ -128,8 +129,9 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
     detail: row.mean === null ? t('usage_stats.no_data') : `${row.mean.toFixed(1)} t/s`,
     secondary: t('usage_stats.model_speed_samples', { samples: row.count.toLocaleString(locale) }),
   })) : [];
+  const legendItems = selected.map((model) => ({ model, color: colorAt(colors[model], isDark), mean: modelSpeedCombinedMean(models.get(model)?.samples ?? []) }));
 
-  return <section className={`${panelStyles.analysisCard} keeper-card-surface`} data-analysis-model-speed>
+  return <section className={`${panelStyles.analysisCard} ${styles.card} keeper-card-surface`} data-analysis-model-speed>
     <div className={`${styles.header} keeper-card-heading`}>
       <div><h2 className="keeper-card-title">{t('usage_stats.analysis_model_speed_title')}</h2>
         <p className="keeper-card-subtitle">{t('usage_stats.analysis_model_speed_subtitle')}</p></div>
@@ -143,12 +145,7 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
           onPointerMove={(event) => { if (event.pointerType === 'mouse') touchInput.current = false; }}>
           <Scatter data={chartData} options={chartOptions} plugins={[plugin]} />
         </div>}
-      {selected.length > 0 && <div className={`${panelStyles.analysisChartLegend} ${styles.legend}`}>
-        {selected.map((model) => <span key={model} className={panelStyles.analysisLegendItem} title={model}>
-          <span className={panelStyles.analysisLegendDot} style={{ backgroundColor: colorAt(colors[model], isDark) }} aria-hidden="true" />
-          <span className={panelStyles.analysisLegendLabel}>{model}</span>
-        </span>)}
-      </div>}
+      <ModelSpeedLegend items={legendItems} />
     </div>
     {visibleHover && hoveredBucket && <ModelSpeedTooltip canvasRef={canvasRef} x={visibleHover.x} y={visibleHover.y} touch={visibleHover.touch} theme={theme}
       title={formatModelSpeedTimeRange(hoveredBucket.start, hoveredBucket.end, timezone, locale, granularity === 'daily' ? 'date' : 'minutes')}
