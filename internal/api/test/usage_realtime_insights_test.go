@@ -31,8 +31,8 @@ func TestRealtimeInsightsAPIMapsCachedTotalsAndScopesViewer(t *testing.T) {
 	now := time.Now()
 	ownCost, otherFailedCost, available := 4.25, 99.0, true
 	if err := db.Create(&[]entities.UsageEvent{
-		{EventKey: "own", Timestamp: now.Add(-time.Minute), APIGroupKey: key.APIKey, Model: "own-model", InputTokens: 100, OutputTokens: 20, TotalTokens: 120, CacheReadTokens: 40, CostUSD: &ownCost, CostAvailable: &available},
-		{EventKey: "other", Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-other654321", Model: "other-model", Failed: true, CostUSD: &otherFailedCost, CostAvailable: &available},
+		{EventKey: "own", Timestamp: now.Add(-time.Minute), APIGroupKey: key.APIKey, Model: "own-model", LatencyMS: 2000, InputTokens: 100, OutputTokens: 20, TotalTokens: 120, CacheReadTokens: 40, CostUSD: &ownCost, CostAvailable: &available},
+		{EventKey: "other", Timestamp: now.Add(-time.Minute), APIGroupKey: "sk-other654321", Model: "other-model", OutputTokens: 100, LatencyMS: 1000, Failed: true, CostUSD: &otherFailedCost, CostAvailable: &available},
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +66,21 @@ func TestRealtimeInsightsAPIMapsCachedTotalsAndScopesViewer(t *testing.T) {
 			t.Fatalf("status %d: %s", response.Code, response.Body.String())
 		}
 		var payload struct {
+			ModelSpeed struct {
+				Available       bool `json:"available"`
+				Start, Mid, End time.Time
+				Series          []struct {
+					Model       string
+					TotalTokens int64 `json:"total_tokens"`
+					FirstHalf   struct {
+						MeanTPS *float64 `json:"mean_tps"`
+					} `json:"first_half"`
+					SecondHalf struct {
+						MeanTPS *float64 `json:"mean_tps"`
+						Count   int64    `json:"speed_sample_count"`
+					} `json:"second_half"`
+				} `json:"series"`
+			} `json:"model_speed"`
 			Insights struct {
 				Summary struct {
 					Requests, Failures int64
@@ -77,6 +92,16 @@ func TestRealtimeInsightsAPIMapsCachedTotalsAndScopesViewer(t *testing.T) {
 		}
 		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 			t.Fatal(err)
+		}
+		wantModels := 2
+		if viewer {
+			wantModels = 1
+		}
+		if !payload.ModelSpeed.Available || len(payload.ModelSpeed.Series) != wantModels || payload.ModelSpeed.Series[0].Model != "own-model" || payload.ModelSpeed.Series[0].TotalTokens != 120 || payload.ModelSpeed.Series[0].FirstHalf.MeanTPS != nil || payload.ModelSpeed.Series[0].SecondHalf.MeanTPS == nil || !overviewAPICostClose(*payload.ModelSpeed.Series[0].SecondHalf.MeanTPS, 10) || payload.ModelSpeed.Series[0].SecondHalf.Count != 1 {
+			t.Fatalf("speed mapping/viewer scope: %s", response.Body.String())
+		}
+		if payload.ModelSpeed.Mid.Sub(payload.ModelSpeed.Start) != 450*time.Second || payload.ModelSpeed.End.Sub(payload.ModelSpeed.Mid) != 450*time.Second {
+			t.Fatal("incorrect half bounds")
 		}
 		wantRequests, wantFailures := int64(2), int64(1)
 		if viewer {

@@ -72,6 +72,14 @@ function normalizeOverviewRealtimeBlock(
   return {
     window: resolvedWindow,
     insights: block.insights,
+    // 旧响应缺字段时速度明确不可用，继续复用这一轮 Realtime 请求。
+    model_speed: {
+      available: block.model_speed?.available ?? false,
+      start: block.model_speed?.start,
+      mid: block.model_speed?.mid,
+      end: block.model_speed?.end,
+      series: block.model_speed?.series ?? [],
+    },
     timezone: block.timezone,
     bucket_seconds: block.bucket_seconds ?? realtimeBucketSecondsForWindow(resolvedWindow),
     window_start: block.window_start,

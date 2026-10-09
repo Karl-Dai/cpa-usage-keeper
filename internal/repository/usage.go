@@ -1409,6 +1409,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, recent
 	apiKeyUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	authFileUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	aiProviderUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
+	modelSpeed := newRealtimeModelSpeed(start, end, cacheOK)
 
 	for _, realtimeEvent := range events {
 		// 缓存事件已经是最小投影，这里转回 UsageEvent 复用已存金额、Token 和请求统计处理。
@@ -1421,6 +1422,9 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, recent
 		}
 		// visibleEvent 控制当前占比统计范围，避免预热事件进入当前窗口语义。
 		visibleEvent := !timestamp.Before(start)
+		if cacheOK && visibleEvent && timestamp.Before(end) {
+			modelSpeed.add(event, timestamp)
+		}
 		// 请求水平包含成功和失败请求。
 		bucket := &buckets[index]
 		bucket.requests++
@@ -1469,7 +1473,9 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, recent
 	}
 
 	// 最后统一把 bucket、percentile 和当前用量 accumulator 映射成 API DTO。
-	return finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage), nil
+	result := finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage)
+	result.ModelSpeed = modelSpeed.finalize(modelUsage)
+	return result, nil
 }
 
 func usageEventGenerateEnabled(generate *bool) bool {

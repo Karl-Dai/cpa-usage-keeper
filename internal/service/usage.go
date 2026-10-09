@@ -375,6 +375,7 @@ func mapUsageOverviewRealtime(realtime repodto.UsageOverviewRealtimeRecord) serv
 		WindowStart:    realtime.WindowStart,
 		WindowEnd:      realtime.WindowEnd,
 		TokenVelocity:  mapRealtimeTokenVelocity(realtime.TokenVelocity),
+		ModelSpeed:     mapRealtimeModelSpeed(realtime.ModelSpeed),
 		LatencyScatter: mapRealtimeLatencyScatter(realtime.LatencyScatter),
 		CurrentUsage:   mapRealtimeCurrentUsage(realtime.CurrentUsage),
 		RequestLevel:   mapRealtimeRequestLevel(realtime.RequestLevel),
@@ -803,6 +804,17 @@ func mapAnalysisModelSpeed(record repodto.AnalysisModelSpeedRecord) servicedto.A
 			samples = append(samples, servicedto.AnalysisModelSpeedSample{SpeedTPSSum: sample.SpeedTPSSum, SpeedSampleCount: sample.SpeedSampleCount, MeanTPS: sample.MeanTPS})
 		}
 		result.Series = append(result.Series, servicedto.AnalysisModelSpeedSeries{Model: series.Model, TotalTokens: series.TotalTokens, SpeedSampleCount: series.SpeedSampleCount, Samples: samples})
+	}
+	return result
+}
+
+func mapRealtimeModelSpeed(speed repodto.RealtimeModelSpeedRecord) servicedto.RealtimeModelSpeed {
+	result := servicedto.RealtimeModelSpeed{Available: speed.Available, Start: speed.Start, Mid: speed.Mid, End: speed.End, Series: make([]servicedto.RealtimeModelSpeedSeries, 0, len(speed.Series))}
+	sample := func(row repodto.RealtimeModelSpeedSampleRecord) servicedto.RealtimeModelSpeedSample {
+		return servicedto.RealtimeModelSpeedSample{SpeedTPSSum: row.SpeedTPSSum, SpeedSampleCount: row.SpeedSampleCount, MeanTPS: row.MeanTPS}
+	}
+	for _, row := range speed.Series {
+		result.Series = append(result.Series, servicedto.RealtimeModelSpeedSeries{Model: row.Model, TotalTokens: row.TotalTokens, SpeedSampleCount: row.SpeedSampleCount, FirstHalf: sample(row.FirstHalf), SecondHalf: sample(row.SecondHalf)})
 	}
 	return result
 }

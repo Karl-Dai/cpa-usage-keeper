@@ -209,8 +209,23 @@ export interface RealtimeInsights {
   outcomes: Array<{ bucket: string; requests: number; failures: number }>
 }
 
+export interface RealtimeModelSpeedPayload {
+  available: boolean
+  start?: string
+  mid?: string
+  end?: string
+  series: {
+    model: string
+    total_tokens: number
+    speed_sample_count: number
+    first_half: AnalysisModelSpeedSample
+    second_half: AnalysisModelSpeedSample
+  }[]
+}
+
 export interface OverviewRealtimeBlock {
   insights?: RealtimeInsights
+  model_speed?: RealtimeModelSpeedPayload
   window: OverviewRealtimeWindow
   timezone?: string
   bucket_seconds: number
