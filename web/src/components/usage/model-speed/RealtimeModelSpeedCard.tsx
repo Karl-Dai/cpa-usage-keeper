@@ -158,7 +158,7 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
     <div className={`${styles.body} ${styles.realtimeBody}`}>
       {initialLoading ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t('common.loading')}</div>
         : !speed.available ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t('usage_stats.model_speed_unavailable')}</div>
-        : selected.length === 0 ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t('usage_stats.model_speed_empty_selection')}</div>
+        : selected.length === 0 ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t(candidates.length === 0 ? 'usage_stats.no_data' : 'usage_stats.model_speed_empty_selection')}</div>
         : <div className={styles.chart} onPointerDown={(event) => { touchInput.current = event.pointerType === 'touch'; }}
           onPointerMove={(event) => { if (event.pointerType === 'mouse') touchInput.current = false; }}>
           <Scatter data={chartData} options={chartOptions} plugins={[plugin]} />

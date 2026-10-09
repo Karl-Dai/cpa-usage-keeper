@@ -2209,6 +2209,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             {activeTab === 'realtime' && (
               <OverviewRealtimePanel
                 realtime={currentRealtime ?? undefined}
+                modelSpeedPreferenceScope={isEmbeddedInCPAMC ? 'admin:embed' : 'admin'}
                 loading={realtimeLoading}
                 error={displayRealtimeError}
                 window={realtimeWindow}

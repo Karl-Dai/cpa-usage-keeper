@@ -433,6 +433,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
 
       {page === 'realtime' && <OverviewRealtimePanel
         realtime={visibleRealtime ?? undefined}
+        modelSpeedPreferenceScope={apiKey?.id ? `key-viewer:${apiKey.id}` : null}
         loading={realtimeLoading || (realtimeError === 'COSTS_BUSY' && !visibleRealtime)}
         error={displayRealtimeError}
         window={realtimeWindow}

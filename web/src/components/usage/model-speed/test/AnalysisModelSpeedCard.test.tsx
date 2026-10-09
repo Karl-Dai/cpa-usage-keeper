@@ -79,6 +79,12 @@ describe('Analysis model speed card', () => {
     expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('200.0 t/s');
   });
 
+  it('shows no data when the current range offers no models to choose', async () => {
+    await render({ buckets: [], series: [] });
+    expect(container.textContent).toContain('usage_stats.no_data');
+    expect(container.textContent).not.toContain('usage_stats.model_speed_empty_selection');
+  });
+
   it('preserves explicit empty selection and displays the selection empty state', async () => {
     localStorage.setItem(modelSpeedStorageKey('analysis', 'admin'), JSON.stringify({ version: 1, models: [] }));
     await render();

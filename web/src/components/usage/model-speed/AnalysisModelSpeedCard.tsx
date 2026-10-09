@@ -145,7 +145,7 @@ export function AnalysisModelSpeedCard({ speed: response, loading, isDark, isMob
     </div>
     <div className={styles.body}>
       {loading ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t('common.loading')}</div>
-        : selected.length === 0 ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t('usage_stats.model_speed_empty_selection')}</div>
+        : selected.length === 0 ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t(candidates.length === 0 ? 'usage_stats.no_data' : 'usage_stats.model_speed_empty_selection')}</div>
         : speed.buckets.length === 0 ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t('usage_stats.no_data')}</div>
         : <div className={styles.chart} onPointerDown={(event) => { touchInput.current = event.pointerType === 'touch'; }}
           onPointerMove={(event) => { if (event.pointerType === 'mouse') touchInput.current = false; }}>

@@ -112,3 +112,9 @@ it('preserves its canvas, selection and tooltip during a background refresh', as
   await hover(1, plugin);
   expect(document.querySelector('[data-model-speed-tooltip]')!.textContent).toContain('123.0 t/s');
 });
+
+it('shows no data instead of an impossible selection prompt for an empty available window', async () => {
+  await render({ available: true, series: [] });
+  expect(container.textContent).toContain('usage_stats.no_data');
+  expect(container.textContent).not.toContain('usage_stats.model_speed_empty_selection');
+});
