@@ -1,0 +1,40 @@
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+
+  > div { min-width: 0; }
+}
+
+.body {
+  height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.chart {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+
+  canvas { touch-action: pan-x pan-y !important; }
+}
+
+.empty {
+  flex: 1;
+}
+
+.legend {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+.tooltip {
+  // 模型选择菜单沿用 Select 的层级；速度 Tooltip 在它下方，并在打开菜单时隐藏。
+  z-index: 2000;
+}
