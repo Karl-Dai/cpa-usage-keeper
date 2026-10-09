@@ -48,12 +48,13 @@ export function modelSpeedBucketIndex(value: number, count: number) {
   return Math.max(0, Math.min(count - 1, Math.round(value)));
 }
 
-export function formatModelSpeedTime(timestamp: string, timezone: string, locale: string, short = false) {
+export function formatModelSpeedTime(timestamp: string, timezone: string, locale: string, short = false, includeSeconds = false) {
   try {
     return new Intl.DateTimeFormat(locale, {
       timeZone: timezone, month: '2-digit', day: '2-digit',
       ...(short ? {} : { year: 'numeric' as const }),
       hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      ...(includeSeconds ? { second: '2-digit' as const } : {}),
     }).format(new Date(timestamp));
   } catch { return timestamp.replace('T', ' ').slice(0, 16); }
 }

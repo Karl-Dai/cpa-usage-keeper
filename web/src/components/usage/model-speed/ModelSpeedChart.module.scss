@@ -39,3 +39,30 @@
   // 模型选择菜单沿用 Select 的层级；速度 Tooltip 在它下方，并在打开菜单时隐藏。
   z-index: 2000;
 }
+
+.realtimeHeader:global(.keeper-card-heading) {
+  margin-bottom: 0;
+  align-items: center;
+}
+
+.realtimeBody {
+  height: 272px;
+}
+
+.phases {
+  display: flex;
+  gap: 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  > span { display: inline-flex; align-items: center; gap: 6px; }
+}
+
+.phaseDot {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.phaseFilled { background: currentColor; }
