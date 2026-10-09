@@ -28,6 +28,8 @@ var analysisProjectionFixedColumns = []string{
 	"total_tokens",
 	"cost_usd",
 	"unavailable_cost_count",
+	"speed_tps_sum",
+	"speed_sample_count",
 }
 
 func TestAnalysisProjectionSelectsOnlyFixedColumnsWithoutPricingRules(t *testing.T) {

@@ -584,6 +584,7 @@ func mapAnalysisRecord(record *repodto.AnalysisRecord) *servicedto.AnalysisSnaps
 		RangeEnd:              record.RangeEnd,
 		TokenUsage:            tokenUsage,
 		ModelUsage:            modelUsage,
+		ModelSpeed:            mapAnalysisModelSpeed(record.ModelSpeed),
 		APIKeyComposition:     apiKeys,
 		ModelComposition:      models,
 		AuthFilesComposition:  authFiles,
@@ -788,4 +789,20 @@ func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter s
 		return nil, err
 	}
 	return &servicedto.UsageEventFilterOptions{Models: options.Models}, nil
+}
+
+// mapAnalysisModelSpeed 透传同次 rollup 读取的显示组及 sum/count，不触发额外查询。
+func mapAnalysisModelSpeed(record repodto.AnalysisModelSpeedRecord) servicedto.AnalysisModelSpeed {
+	result := servicedto.AnalysisModelSpeed{RangeStart: record.RangeStart, RangeEnd: record.RangeEnd, Buckets: make([]servicedto.AnalysisModelSpeedBucket, 0, len(record.Buckets)), Series: make([]servicedto.AnalysisModelSpeedSeries, 0, len(record.Series))}
+	for _, bucket := range record.Buckets {
+		result.Buckets = append(result.Buckets, servicedto.AnalysisModelSpeedBucket{Start: bucket.Start, End: bucket.End})
+	}
+	for _, series := range record.Series {
+		samples := make([]servicedto.AnalysisModelSpeedSample, 0, len(series.Samples))
+		for _, sample := range series.Samples {
+			samples = append(samples, servicedto.AnalysisModelSpeedSample{SpeedTPSSum: sample.SpeedTPSSum, SpeedSampleCount: sample.SpeedSampleCount, MeanTPS: sample.MeanTPS})
+		}
+		result.Series = append(result.Series, servicedto.AnalysisModelSpeedSeries{Model: series.Model, TotalTokens: series.TotalTokens, SpeedSampleCount: series.SpeedSampleCount, Samples: samples})
+	}
+	return result
 }

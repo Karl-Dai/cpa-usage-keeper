@@ -429,7 +429,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		if err != nil {
 			return nil, err
 		}
-		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup)
+		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup, dailyStart, dailyEnd)
 		return record, nil
 	}
 
@@ -446,7 +446,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	if err != nil {
 		return nil, err
 	}
-	applyAnalysisHourlyRows(record, rows, identityLookup)
+	applyAnalysisHourlyRows(record, rows, identityLookup, fullStart, fullEnd)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return record, nil
 }
@@ -550,7 +550,8 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 }
 
 // applyAnalysisHourlyRows 保留趋势、构成和排序输入的原Token／请求口径，金额只取已存小时列。
-func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverviewStatProjection, identityLookup analysisIdentityLookup) {
+func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverviewStatProjection, identityLookup analysisIdentityLookup, start, end time.Time) {
+	speed := newAnalysisModelSpeed(start, end, false)
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	modelUsageTotals := map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -561,14 +562,17 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverview
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
 		cost, costAvailable := *row.CostUSD, *row.UnavailableCostCount == 0
+		speed.add(row, bucket)
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
+	record.ModelSpeed = speed.finalize()
 	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
 // applyAnalysisDailyRows 沿自然日桶聚合已存费用和原Token，供长范围图表及四维统计复用。
-func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup) {
+func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, start, end time.Time) {
+	speed := newAnalysisModelSpeed(start, end, true)
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	modelUsageTotals := map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -579,9 +583,11 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOver
 	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
 		cost, costAvailable := *row.CostUSD, *row.UnavailableCostCount == 0
+		speed.add(row, bucket)
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
+	record.ModelSpeed = speed.finalize()
 	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 

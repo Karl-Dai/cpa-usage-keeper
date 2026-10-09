@@ -19,6 +19,7 @@ type analysisResponse struct {
 	RangeStart            *time.Time                `json:"range_start,omitempty"`
 	RangeEnd              *time.Time                `json:"range_end,omitempty"`
 	TokenUsage            []analysisTokenUsage      `json:"token_usage"`
+	ModelSpeed            analysisModelSpeed        `json:"model_speed"`
 	ModelUsage            analysisModelUsage        `json:"model_usage"`
 	APIKeyComposition     []analysisCompositionItem `json:"api_key_composition"`
 	ModelComposition      []analysisCompositionItem `json:"model_composition"`
@@ -51,6 +52,31 @@ type analysisModelUsageSeries struct {
 	Model       string  `json:"model"`
 	TotalTokens []int64 `json:"total_tokens"`
 	Requests    []int64 `json:"requests"`
+}
+
+type analysisModelSpeed struct {
+	RangeStart *time.Time                 `json:"range_start,omitempty"`
+	RangeEnd   *time.Time                 `json:"range_end,omitempty"`
+	Buckets    []analysisModelSpeedBucket `json:"buckets"`
+	Series     []analysisModelSpeedSeries `json:"series"`
+}
+
+type analysisModelSpeedBucket struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+type analysisModelSpeedSample struct {
+	SpeedTPSSum      float64  `json:"speed_tps_sum"`
+	SpeedSampleCount int64    `json:"speed_sample_count"`
+	MeanTPS          *float64 `json:"mean_tps"`
+}
+
+type analysisModelSpeedSeries struct {
+	Model            string                     `json:"model"`
+	TotalTokens      int64                      `json:"total_tokens"`
+	SpeedSampleCount int64                      `json:"speed_sample_count"`
+	Samples          []analysisModelSpeedSample `json:"samples"`
 }
 
 type analysisCompositionItem struct {
@@ -263,6 +289,7 @@ func emptyAnalysisResponse() analysisResponse {
 		Granularity:           string(servicedto.AnalysisGranularityHourly),
 		Timezone:              time.Local.String(),
 		TokenUsage:            []analysisTokenUsage{},
+		ModelSpeed:            buildAnalysisModelSpeedPayload(servicedto.AnalysisModelSpeed{}),
 		ModelUsage:            analysisModelUsage{Buckets: []time.Time{}, Series: []analysisModelUsageSeries{}},
 		APIKeyComposition:     []analysisCompositionItem{},
 		ModelComposition:      []analysisCompositionItem{},
@@ -327,6 +354,7 @@ func buildAnalysisPayload(snapshot *servicedto.AnalysisSnapshot, apiKeyInfos map
 		RangeStart:            snapshot.RangeStart,
 		RangeEnd:              snapshot.RangeEnd,
 		TokenUsage:            tokenUsage,
+		ModelSpeed:            buildAnalysisModelSpeedPayload(snapshot.ModelSpeed),
 		ModelUsage:            buildAnalysisModelUsagePayload(snapshot.TokenUsage, snapshot.ModelUsage),
 		APIKeyComposition:     apiComposition,
 		ModelComposition:      modelComposition,
@@ -542,4 +570,19 @@ func sortedHeatmapKeysByRequests(requestsByKey map[string]int64) []string {
 		return requestsByKey[keys[i]] > requestsByKey[keys[j]]
 	})
 	return keys
+}
+
+func buildAnalysisModelSpeedPayload(speed servicedto.AnalysisModelSpeed) analysisModelSpeed {
+	result := analysisModelSpeed{RangeStart: speed.RangeStart, RangeEnd: speed.RangeEnd, Buckets: make([]analysisModelSpeedBucket, 0, len(speed.Buckets)), Series: make([]analysisModelSpeedSeries, 0, len(speed.Series))}
+	for _, bucket := range speed.Buckets {
+		result.Buckets = append(result.Buckets, analysisModelSpeedBucket{Start: bucket.Start, End: bucket.End})
+	}
+	for _, series := range speed.Series {
+		samples := make([]analysisModelSpeedSample, 0, len(series.Samples))
+		for _, sample := range series.Samples {
+			samples = append(samples, analysisModelSpeedSample{SpeedTPSSum: sample.SpeedTPSSum, SpeedSampleCount: sample.SpeedSampleCount, MeanTPS: sample.MeanTPS})
+		}
+		result.Series = append(result.Series, analysisModelSpeedSeries{Model: series.Model, TotalTokens: series.TotalTokens, SpeedSampleCount: series.SpeedSampleCount, Samples: samples})
+	}
+	return result
 }

@@ -26,12 +26,14 @@ type analysisOverviewStatProjection struct {
 	CacheReadTokens      int64
 	CacheCreationTokens  int64
 	TotalTokens          int64
+	SpeedTPSSum          float64
+	SpeedSampleCount     int64
 	CostUSD              *float64
 	UnavailableCostCount *int64
 }
 
-// Analysis 仅投影图表、构成和身份需要的旧计数／Token 字段，以及已存费用两列。
-const analysisOverviewProjectionColumns = "bucket_start, api_group_key, model, auth_index, request_count, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, unavailable_cost_count"
+// Analysis 仅投影图表、构成和身份需要的旧计数／Token 字段，以及已存费用和端到端速度列。
+const analysisOverviewProjectionColumns = "bucket_start, api_group_key, model, auth_index, request_count, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_creation_tokens, total_tokens, cost_usd, unavailable_cost_count, speed_tps_sum, speed_sample_count"
 
 // loadAnalysisOverviewHourlyStatsWithFilter 只读 active Key 的完整小时汇总，不拼原始事件。
 func loadAnalysisOverviewHourlyStatsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time) ([]analysisOverviewStatProjection, error) {
