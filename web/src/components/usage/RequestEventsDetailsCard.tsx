@@ -53,6 +53,7 @@ import {
 import { RequestEventsColumnSettingsModal } from './RequestEventsColumnSettingsModal';
 import { RequestEventLogModal } from './RequestEventLogModal';
 import { RequestEventResultBadge } from './RequestEventResultBadge';
+import { RequestEventRequestCell, RequestEventRequestType } from './RequestEventRequestCell';
 
 export { splitRequestLogVirtualChunks } from './RequestEventLogModal';
 
@@ -1003,10 +1004,17 @@ export function RequestEventsDetailsCard({
         label: t('usage_stats.request_events_request'),
         header: <th className={styles.requestEventsNoWrapCell}>{t('usage_stats.request_events_request')}</th>,
         renderCell: (row) => (
-          <td className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}>
-            <span className={styles.requestEventsStackedPrimary}>{row.requestType}</span>
-            <span className={styles.requestEventsStackedSecondary} title={row.endpoint}>{row.endpoint}</span>
-          </td>
+          <RequestEventRequestCell
+            event={row.event}
+            requestType={row.requestType}
+            className={`${styles.requestEventsNoWrapCell} ${styles.requestEventsStackedCell}`}
+            tooltipActions={modelTooltipActions}
+          >
+            <span className={styles.requestEventsStackedPrimary}>
+              <RequestEventRequestType requestType={row.requestType} stream={row.event.stream} />
+            </span>
+            <span className={styles.requestEventsStackedSecondary}>{row.endpoint}</span>
+          </RequestEventRequestCell>
         ),
       },
       {
