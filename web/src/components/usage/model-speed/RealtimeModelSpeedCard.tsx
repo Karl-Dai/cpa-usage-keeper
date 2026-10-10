@@ -11,6 +11,7 @@ import { ModelSpeedPicker } from './ModelSpeedPicker';
 import { ModelSpeedLegend } from './ModelSpeedLegend';
 import { ModelSpeedTooltip } from './ModelSpeedTooltip';
 import { useModelSpeedSelection } from './modelSpeedSelection';
+import { MODEL_SPEED_ANIMATION_MS, useModelSpeedAnimation, type ModelSpeedRefreshSignal } from './modelSpeedAnimation';
 import panelStyles from '../analysis/AnalysisPanel.module.scss';
 import usageStyles from '@/pages/UsagePage.module.scss';
 import styles from './ModelSpeedChart.module.scss';
@@ -23,7 +24,7 @@ const colorAt = (slot: number | undefined, isDark: boolean) => {
   return isDark ? color.light : color.base;
 };
 
-export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMobile, timezone = 'UTC', preferenceScope = 'admin', queryKey = '' }: {
+export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMobile, timezone = 'UTC', preferenceScope = 'admin', queryKey = '', refreshSignal }: {
   speed?: RealtimeModelSpeedPayload;
   loading: boolean;
   isDark: boolean;
@@ -31,11 +32,13 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
   timezone?: string;
   preferenceScope?: string | null;
   queryKey?: string;
+  refreshSignal?: ModelSpeedRefreshSignal;
 }) {
   const { t, i18n } = useTranslation();
   const speed = response ?? EMPTY_SPEED;
   const initialLoading = loading && !response;
   const { selected, colors, candidates, choose, reset } = useModelSpeedSelection('realtime', preferenceScope, speed.series, queryKey, response !== undefined && !loading);
+  const { reducedMotion, beforeDatasetsUpdate } = useModelSpeedAnimation(queryKey, response, refreshSignal);
   const theme = useMemo(() => getUsageChartTheme(isDark), [isDark]);
   const models = useMemo(() => new Map(speed.series.map((series) => [series.model, series])), [speed]);
   const locale = i18n?.language ?? 'en';
@@ -68,6 +71,7 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
 
   const handlers = useMemo<Plugin<'scatter'>>(() => ({
     id: 'realtimeModelSpeed',
+    beforeDatasetsUpdate,
     beforeDatasetsDraw(chart) {
       chart.ctx.save(); chart.ctx.lineWidth = 1.5;
       selected.forEach((model, row) => {
@@ -104,16 +108,20 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
       setHover((previous) => previous?.source === speed && previous.model === model && previous.x === x && previous.y === y && previous.touch === touchInput.current
         ? previous : { source: speed, model, x, y, touch: touchInput.current });
     },
-  }), [selected, models, colors, isDark, radius, speed, pickerOpen, closeOnLeave, theme, noDataLabel]);
+  }), [selected, models, colors, isDark, radius, speed, pickerOpen, closeOnLeave, theme, noDataLabel, beforeDatasetsUpdate]);
   const liveHandlers = useRef(handlers);
   useLayoutEffect(() => { liveHandlers.current = handlers; }, [handlers]);
   const plugin = useMemo<Plugin<'scatter'>>(() => ({
     id: 'realtimeModelSpeed',
+    beforeDatasetsUpdate: (chart, args, options) => liveHandlers.current.beforeDatasetsUpdate?.(chart, args, options),
     beforeDatasetsDraw: (chart, args, options) => liveHandlers.current.beforeDatasetsDraw?.(chart, args, options),
     afterEvent: (chart, args, options) => liveHandlers.current.afterEvent?.(chart, args, options),
   }), []);
   const chartOptions = useMemo<ChartOptions<'scatter'>>(() => ({
     responsive: true, maintainAspectRatio: false,
+    indexAxis: 'y',
+    animation: reducedMotion ? false : { duration: MODEL_SPEED_ANIMATION_MS },
+    transitions: { resize: { animation: { duration: reducedMotion ? 0 : MODEL_SPEED_ANIMATION_MS } } },
     layout: { padding: { top: 6, right: 8, bottom: 2 } },
     plugins: { legend: { display: false }, tooltip: { enabled: false } },
     scales: {
@@ -130,7 +138,7 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
         },
       },
     },
-  }), [theme, isMobile, selected]);
+  }), [theme, isMobile, selected, reducedMotion]);
   const visibleHover = !initialLoading && !pickerOpen && speed.available && hover?.source === speed && selected.includes(hover.model) ? hover : null;
   const hoveredModel = visibleHover ? models.get(visibleHover.model) : null;
   const tooltipRows = visibleHover ? [

@@ -19,6 +19,7 @@ interface LoadUsageStatsRealtimeOptions {
   staleTimeMs?: number;
   apiKeyId?: string;
   realtimeWindow?: OverviewRealtimeWindow;
+  onLoaded?: (response: OverviewRealtimeBlock) => void;
 }
 
 interface UsageStatsState {
@@ -143,6 +144,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       staleTimeMs = USAGE_STATS_STALE_TIME_MS,
       apiKeyId,
       realtimeWindow,
+      onLoaded,
     } = options;
     const { lastRealtimeRefreshedAt, realtimeLoading, realtime, lastRealtimeQueryKey, realtimeError, lastRealtimeErrorQueryKey } = get();
     const now = Date.now();
@@ -189,6 +191,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           lastRealtimeRefreshedAt: Date.now(),
           lastRealtimeQueryKey: realtimeQueryKey,
         });
+        onLoaded?.(nextRealtime);
       } catch (error) {
         if (controller.signal.aborted) {
           return;

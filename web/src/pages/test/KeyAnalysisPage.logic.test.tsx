@@ -28,9 +28,10 @@ vi.mock('@/features/key-viewer/KeyViewerShell', () => ({
 }));
 
 vi.mock('@/components/usage', () => ({
-  AnalysisPanel: ({ analysis, loading, latencyDiagnostics, modelSpeedPreferenceScope, modelSpeedQueryKey }: { modelSpeedPreferenceScope: string | null; modelSpeedQueryKey: string; analysis: AnalysisResponse | null; loading: boolean; latencyDiagnostics: AnalysisLatencyDiagnostics | null }) => <>
+  AnalysisPanel: ({ analysis, loading, latencyDiagnostics, modelSpeedPreferenceScope, modelSpeedQueryKey, modelSpeedRefreshSignal }: { modelSpeedPreferenceScope: string | null; modelSpeedQueryKey: string; modelSpeedRefreshSignal?: { source: object; revision: number }; analysis: AnalysisResponse | null; loading: boolean; latencyDiagnostics: AnalysisLatencyDiagnostics | null }) => <>
     <div data-testid="model-speed-scope">{modelSpeedPreferenceScope ?? 'temporary'}</div>
     <div data-testid="model-speed-query">{modelSpeedQueryKey}</div>
+    <div data-testid="model-speed-replays">{modelSpeedRefreshSignal?.revision ?? 0}</div>
     <div data-testid="analysis">{analysis?.timezone ?? 'empty'}</div>
     <div data-testid="analysis-cost">{analysis?.cost_summary.total_cost_usd ?? 'missing'}</div>
     <div data-testid="analysis-loading">{String(loading)}</div>
@@ -234,6 +235,20 @@ describe('KeyAnalysisPage requests', () => {
     expect(container.querySelector('[data-testid="model-speed-scope"]')?.textContent).toBe('key-viewer:99');
     await act(async () => root.render(<KeyAnalysisPage apiKey={{ display_key: 'same-masked-key' }} onNavigate={vi.fn()} />));
     expect(container.querySelector('[data-testid="model-speed-scope"]')?.textContent).toBe('temporary');
+  });
+
+  it('replays only successful manual core responses even if the latency section fails', async () => {
+    const response = { ...analysisResponse('UTC'), model_speed: { buckets: [], series: [] } };
+    apiMocks.fetchKeyAnalysis.mockResolvedValueOnce(response).mockResolvedValueOnce(response).mockRejectedValueOnce(new Error('failed'));
+    apiMocks.fetchKeyAnalysisLatency.mockResolvedValueOnce(latencyResponse).mockRejectedValueOnce(new Error('latency failed')).mockResolvedValueOnce(latencyResponse);
+    await act(async () => root.render(<KeyAnalysisPage onNavigate={vi.fn()} />));
+    const revision = () => container.querySelector('[data-testid="model-speed-replays"]')!.textContent;
+    const refresh = () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'usage_stats.refresh')!.click();
+    expect(revision()).toBe('0');
+    await act(async () => refresh());
+    expect(revision()).toBe('1');
+    await act(async () => refresh());
+    expect(revision()).toBe('1');
   });
 
 });

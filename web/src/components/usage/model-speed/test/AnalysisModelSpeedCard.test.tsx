@@ -25,8 +25,8 @@ describe('Analysis model speed card', () => {
   let root: Root;
   let container: HTMLDivElement;
   beforeEach(() => { localStorage.clear(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
-  const render = async (response = speed, granularity: 'hourly' | 'daily' = 'hourly') => { await act(async () => root.render(<AnalysisModelSpeedCard speed={response} granularity={granularity} loading={false} isDark={false} isMobile={false} timezone="Asia/Shanghai" />)); };
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
+  const render = async (response = speed, granularity: 'hourly' | 'daily' = 'hourly', options: { loading?: boolean; queryKey?: string; refreshSignal?: { source: object; revision: number } } = {}) => { await act(async () => root.render(<AnalysisModelSpeedCard speed={response} granularity={granularity} loading={options.loading ?? false} queryKey={options.queryKey} refreshSignal={options.refreshSignal} isDark={false} isMobile={false} timezone="Asia/Shanghai" />)); };
   const event = async (x: number, y = 100, type: 'mousemove' | 'click' | 'mouseout' = 'mousemove', plugin = captured.plugins[0]) => {
     const chart = { canvas: container.querySelector('canvas'), chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { x: { getValueForPixel: (value: number) => value } } } as unknown as Chart<'scatter'>;
     await act(async () => plugin.afterEvent!(chart, { event: { type, x, y, native: null }, replay: false, inChartArea: true }, {}));
@@ -96,6 +96,43 @@ describe('Analysis model speed card', () => {
     expect(rows.find((row) => row.title === 'slow-model-full-name')!.textContent).toContain('50.0 t/s');
     expect(rows.find((row) => row.title === 'no-speed-model')!.textContent).toContain('usage_stats.no_data');
     expect(rows.find((row) => row.title === 'no-speed-model')!.textContent).not.toContain('0.0 t/s');
+  });
+
+  it('keeps the old canvas while refreshing and resets only for matched success or a new query', async () => {
+    await render();
+    const canvas = container.querySelector('canvas');
+    const chart = { stop: vi.fn(), reset: vi.fn() } as unknown as Chart<'scatter'>;
+    const update = () => captured.plugins[0].beforeDatasetsUpdate!(chart, { mode: 'default', cancelable: true }, {});
+    update();
+    expect(chart.reset).toHaveBeenCalledTimes(1);
+    await render(speed, 'hourly', { loading: true });
+    expect(container.querySelector('canvas')).toBe(canvas);
+    update();
+    expect(chart.reset).toHaveBeenCalledTimes(1);
+    const refreshed = structuredClone(speed);
+    await render(refreshed);
+    update();
+    expect(chart.reset).toHaveBeenCalledTimes(1);
+    await render(refreshed, 'hourly', { refreshSignal: { source: speed, revision: 1 } });
+    update();
+    expect(chart.reset).toHaveBeenCalledTimes(1);
+    await render(refreshed, 'hourly', { refreshSignal: { source: refreshed, revision: 2 } });
+    update();
+    expect(chart.reset).toHaveBeenCalledTimes(2);
+    update();
+    expect(chart.reset).toHaveBeenCalledTimes(2);
+    await render(refreshed, 'hourly', { queryKey: 'changed-range' });
+    update();
+    expect(chart.reset).toHaveBeenCalledTimes(3);
+  });
+
+  it('honors reduced motion without resetting the chart for a successful replay', async () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({ matches: query === '(prefers-reduced-motion: reduce)', media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }) as unknown as MediaQueryList);
+    await render(speed, 'hourly', { refreshSignal: { source: speed, revision: 1 } });
+    const chart = { stop: vi.fn(), reset: vi.fn() } as unknown as Chart<'scatter'>;
+    captured.plugins[0].beforeDatasetsUpdate!(chart, { mode: 'default', cancelable: true }, {});
+    expect(captured.options.animation).toBe(false);
+    expect(chart.reset).not.toHaveBeenCalled();
   });
 
   it('keeps the registered plugin reading current selections and refreshed response data', async () => {

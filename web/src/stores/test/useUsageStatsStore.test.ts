@@ -140,9 +140,11 @@ describe('useUsageStatsStore', () => {
     const old = Promise.withResolvers<OverviewRealtimeBlock>()
     const fresh = Promise.withResolvers<OverviewRealtimeBlock>()
     apiMocks.fetchUsageOverviewRealtime.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise)
-    const oldLoad = useUsageStatsStore.getState().loadUsageStatsRealtime({ realtimeWindow: '15m' })
+    const oldLoaded = vi.fn()
+    const freshLoaded = vi.fn()
+    const oldLoad = useUsageStatsStore.getState().loadUsageStatsRealtime({ realtimeWindow: '15m', onLoaded: oldLoaded })
     const oldSignal = apiMocks.fetchUsageOverviewRealtime.mock.calls[0][0].signal as AbortSignal
-    const freshLoad = useUsageStatsStore.getState().loadUsageStatsRealtime({ realtimeWindow: '15m', force: true })
+    const freshLoad = useUsageStatsStore.getState().loadUsageStatsRealtime({ realtimeWindow: '15m', force: true, onLoaded: freshLoaded })
 
     expect(apiMocks.fetchUsageOverviewRealtime).toHaveBeenCalledTimes(2)
     expect(oldSignal.aborted).toBe(true)
@@ -153,5 +155,16 @@ describe('useUsageStatsStore', () => {
     await oldLoad
     expect(useUsageStatsStore.getState().realtime).toEqual(freshValue)
     expect(useUsageStatsStore.getState().realtimeLoading).toBe(false)
+    expect(oldLoaded).not.toHaveBeenCalled()
+    expect(freshLoaded).toHaveBeenCalledExactlyOnceWith(freshValue)
+  })
+
+  it('signals a committed successful response but never signals a handled request failure', async () => {
+    const onLoaded = vi.fn()
+    apiMocks.fetchUsageOverviewRealtime.mockResolvedValueOnce(realtime).mockRejectedValueOnce(new Error('failed'))
+    await useUsageStatsStore.getState().loadUsageStatsRealtime({ force: true, realtimeWindow: '15m', onLoaded })
+    expect(onLoaded).toHaveBeenCalledExactlyOnceWith(realtime)
+    await useUsageStatsStore.getState().loadUsageStatsRealtime({ force: true, realtimeWindow: '15m', onLoaded })
+    expect(onLoaded).toHaveBeenCalledTimes(1)
   })
 })

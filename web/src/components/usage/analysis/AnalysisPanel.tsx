@@ -14,6 +14,7 @@ import { useTopModelsTooltip } from './topModelsTooltip';
 import { formatBucketLabel } from './analysisTimeLabels';
 import styles from './AnalysisPanel.module.scss';
 import { AnalysisModelSpeedCard } from '../model-speed/AnalysisModelSpeedCard';
+import type { ModelSpeedRefreshSignal } from '../model-speed/modelSpeedAnimation';
 import { LatencyScatterChart } from '../LatencyScatterChart';
 
 interface AnalysisPanelProps {
@@ -27,6 +28,7 @@ interface AnalysisPanelProps {
   compositionDimensions?: readonly AnalysisCompositionDimension[];
   modelSpeedPreferenceScope?: string | null;
   modelSpeedQueryKey?: string;
+  modelSpeedRefreshSignal?: ModelSpeedRefreshSignal;
 }
 
 export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider';
@@ -1657,6 +1659,7 @@ export function AnalysisPanel({
   compositionDimensions = DEFAULT_COMPOSITION_DIMENSIONS,
   modelSpeedPreferenceScope = 'admin',
   modelSpeedQueryKey = '',
+  modelSpeedRefreshSignal,
 }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
@@ -1693,7 +1696,7 @@ export function AnalysisPanel({
       </div>
       <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
-        <AnalysisModelSpeedCard speed={analysis?.model_speed} granularity={analysis?.granularity ?? 'hourly'} loading={loading} isDark={isDark} isMobile={isMobile} timezone={analysis?.timezone} preferenceScope={modelSpeedPreferenceScope} queryKey={modelSpeedQueryKey} />
+        <AnalysisModelSpeedCard speed={analysis?.model_speed} granularity={analysis?.granularity ?? 'hourly'} loading={loading} isDark={isDark} isMobile={isMobile} timezone={analysis?.timezone} preferenceScope={modelSpeedPreferenceScope} queryKey={modelSpeedQueryKey} refreshSignal={modelSpeedRefreshSignal} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />
