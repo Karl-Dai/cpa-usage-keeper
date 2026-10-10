@@ -85,6 +85,7 @@
 .tooltipDot { width: 8px; height: 8px; margin-top: 3px; border-radius: 50%; }
 .tooltipValue { font-weight: 800; }
 .tooltipSecondary { font-size: 11px; }
+.tooltipRowHighlighted { border-radius: 4px; }
 
 .realtimeHeader:global(.keeper-card-heading) {
   margin-bottom: 0;

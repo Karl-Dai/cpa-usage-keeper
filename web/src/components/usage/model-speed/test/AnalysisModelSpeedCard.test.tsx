@@ -28,7 +28,7 @@ describe('Analysis model speed card', () => {
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
   const render = async (response = speed, granularity: 'hourly' | 'daily' = 'hourly', options: { loading?: boolean; queryKey?: string; refreshSignal?: { source: object; revision: number } } = {}) => { await act(async () => root.render(<AnalysisModelSpeedCard speed={response} granularity={granularity} loading={options.loading ?? false} queryKey={options.queryKey} refreshSignal={options.refreshSignal} isDark={false} isMobile={false} timezone="Asia/Shanghai" />)); };
   const event = async (x: number, y = 100, type: 'mousemove' | 'click' | 'mouseout' = 'mousemove', plugin = captured.plugins[0]) => {
-    const chart = { canvas: container.querySelector('canvas'), chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { x: { getValueForPixel: (value: number) => value } } } as unknown as Chart<'scatter'>;
+    const chart = { canvas: container.querySelector('canvas'), chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { x: { getValueForPixel: (value: number) => value }, y: { getPixelForValue: () => 300 } }, getDatasetMeta: () => ({ data: [] }), getActiveElements: () => [], setActiveElements: vi.fn(), draw: vi.fn() } as unknown as Chart<'scatter'>;
     await act(async () => plugin.afterEvent!(chart, { event: { type, x, y, native: null }, replay: false, inChartArea: true }, {}));
   };
 
@@ -133,6 +133,33 @@ describe('Analysis model speed card', () => {
     captured.plugins[0].beforeDatasetsUpdate!(chart, { mode: 'default', cancelable: true }, {});
     expect(captured.options.animation).toBe(false);
     expect(chart.reset).not.toHaveBeenCalled();
+  });
+
+  it('highlights only a precisely hit stem or dot while retaining every grouped tooltip row', async () => {
+    await render();
+    let active: { datasetIndex: number; index: number }[] = [];
+    const widths: number[] = [];
+    const context = { lineWidth: 0, strokeStyle: '', save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: () => widths.push(context.lineWidth) };
+    const metadata = [{ data: [{ x: 80, y: 300, skip: true }] }, { data: [{ x: 100, y: 180 }] }, { data: [{ x: 120, y: 60 }] }];
+    const chart = { canvas: container.querySelector('canvas'), ctx: context, data: captured.data, chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { x: { getValueForPixel: () => 0 }, y: { getPixelForValue: () => 300 } }, getDatasetMeta: (index: number) => metadata[index], getActiveElements: () => active, setActiveElements: (items: typeof active) => { active = items; }, draw: vi.fn(), stop: vi.fn(), reset: vi.fn() } as unknown as Chart<'scatter'>;
+    const move = async (x: number, y: number) => { await act(async () => captured.plugins[0].afterEvent!(chart, { event: { type: 'mousemove', x, y, native: null }, replay: false, inChartArea: true }, {})); };
+    await move(122, 250);
+    expect(active).toEqual([{ datasetIndex: 2, index: 0 }]);
+    expect(document.querySelector('[data-model-speed-highlighted] strong')!.textContent).toBe('fast-model-full-name');
+    expect(document.querySelectorAll('[data-model-speed-tooltip] li')).toHaveLength(3);
+    captured.plugins[0].beforeDatasetsDraw!(chart, { cancelable: true }, {});
+    expect(widths).toEqual([1.5, 3]);
+    await move(105, 250);
+    expect(active).toEqual([]);
+    expect(document.querySelector('[data-model-speed-highlighted]')).toBeNull();
+    expect(document.querySelectorAll('[data-model-speed-tooltip] li')).toHaveLength(3);
+    await move(80, 250);
+    expect(active).toEqual([]);
+    await move(100, 179);
+    expect(active).toEqual([{ datasetIndex: 1, index: 0 }]);
+    await act(async () => container.querySelector<HTMLButtonElement>('button')!.click());
+    expect(active).toEqual([]);
+    expect(document.querySelector('[data-model-speed-tooltip]')).toBeNull();
   });
 
   it('keeps the registered plugin reading current selections and refreshed response data', async () => {

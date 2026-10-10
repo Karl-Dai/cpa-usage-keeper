@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
-import type { ChartData, ChartOptions, Plugin } from 'chart.js';
+import type { Chart, ChartData, ChartOptions, Plugin, PointElement } from 'chart.js';
 import { Scatter } from 'react-chartjs-2';
 import type { AnalysisModelSpeedPayload, AnalysisResponse } from '@/lib/types';
 import { formatCompactNumber } from '@/utils/usage';
@@ -17,7 +17,8 @@ import panelStyles from '../analysis/AnalysisPanel.module.scss';
 import styles from './ModelSpeedChart.module.scss';
 
 type SpeedPoint = { x: number; y: number | null };
-type Hover = { source: AnalysisModelSpeedPayload; bucket: number; x: number; y: number; touch: boolean };
+type Hover = { source: AnalysisModelSpeedPayload; bucket: number; model: string | null; x: number; y: number; touch: boolean };
+type Highlight = { source: AnalysisModelSpeedPayload; selected: readonly string[]; datasetIndex: number; index: number };
 const EMPTY_SPEED: AnalysisModelSpeedPayload = { buckets: [], series: [] };
 const colorAt = (slot: number | undefined, isDark: boolean) => {
   const color = USAGE_CHART_COMPOSITION_COLORS[slot ?? 0];
@@ -42,6 +43,8 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
   const { reducedMotion, beforeDatasetsUpdate } = useModelSpeedAnimation(queryKey, response, refreshSignal);
   const theme = useMemo(() => getUsageChartTheme(isDark), [isDark]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const chartRef = useRef<Chart<'scatter'> | null>(null);
+  const highlighted = useRef<Highlight | null>(null);
   const touchInput = useRef(false);
   const [hover, setHover] = useState<Hover | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -58,48 +61,90 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
       backgroundColor: colorAt(colors[model], isDark),
       borderColor: colorAt(colors[model], isDark),
       pointRadius: isMobile ? 2.5 : 4,
-      pointHoverRadius: isMobile ? 3.5 : 5,
+      pointHoverRadius: isMobile ? 4.5 : 6,
+      pointHoverBackgroundColor: colorAt(colors[model], isDark),
+      pointHoverBorderColor: theme.tooltipBg,
+      pointHoverBorderWidth: 2,
       borderWidth: 1,
     })),
-  }), [selected, speed, models, colors, isDark, isMobile]);
-  const dismiss = useCallback(() => setHover(null), []);
+  }), [selected, speed, models, colors, isDark, isMobile, theme.tooltipBg]);
+  const dismiss = useCallback(() => {
+    highlighted.current = null;
+    const chart = chartRef.current;
+    if (chart?.canvas) { chart.setActiveElements([]); chart.draw(); }
+    setHover(null);
+  }, []);
   const closeOnLeave = useCallback(() => { if (!touchInput.current) dismiss(); }, [dismiss]);
   const changePickerOpen = useCallback((open: boolean) => { setPickerOpen(open); if (open) dismiss(); }, [dismiss]);
 
   // 命中整个显示时间组，包含点之间的空白与无样本模型；不依赖 scatter 最近单点。
   const handlers = useMemo<Plugin<'scatter'>>(() => ({
     id: 'analysisModelSpeed',
-    beforeDatasetsUpdate,
+    beforeDatasetsUpdate(chart) {
+      chartRef.current = chart;
+      if (highlighted.current && (highlighted.current.source !== speed || highlighted.current.selected !== selected)) {
+        highlighted.current = null;
+        chart.setActiveElements([]);
+      }
+      beforeDatasetsUpdate(chart);
+    },
     beforeDatasetsDraw(chart) {
       const zero = chart.scales.y.getPixelForValue(0);
       chart.ctx.save();
-      chart.ctx.lineWidth = 1.5;
+      const hit = highlighted.current?.source === speed && highlighted.current.selected === selected ? highlighted.current : null;
       chart.data.datasets.forEach((dataset, datasetIndex) => {
         const metadata = chart.getDatasetMeta(datasetIndex);
         chart.ctx.strokeStyle = String(dataset.borderColor);
         metadata.data.forEach((point, index) => {
           if (modelSpeedMean(models.get(selected[datasetIndex])?.samples[index]) === null) return;
+          chart.ctx.lineWidth = hit?.datasetIndex === datasetIndex && hit.index === index ? 3 : 1.5;
           chart.ctx.beginPath(); chart.ctx.moveTo(point.x, zero); chart.ctx.lineTo(point.x, point.y); chart.ctx.stroke();
         });
       });
       chart.ctx.restore();
     },
-    afterEvent(chart, { event }) {
-      if (pickerOpen || !selected.length || !speed.buckets.length) return;
-      if (event.type === 'mouseout') { closeOnLeave(); return; }
+    afterEvent(chart, args) {
+      const { event } = args;
+      chartRef.current = chart;
+      const syncActive = () => {
+        const hit = highlighted.current;
+        chart.setActiveElements(hit ? [{ datasetIndex: hit.datasetIndex, index: hit.index }] : []);
+        args.changed = true;
+      };
+      if (pickerOpen || !selected.length || !speed.buckets.length) { chart.setActiveElements([]); args.changed = true; return; }
+      if (event.type === 'mouseout') { closeOnLeave(); syncActive(); return; }
       if (event.type !== 'mousemove' && event.type !== 'click') return;
-      if (touchInput.current && event.type !== 'click') return;
+      if (touchInput.current && event.type !== 'click') { syncActive(); return; }
       const { x, y } = event;
       const area = chart.chartArea;
-      if (x === null || y === null || x < area.left || x > area.right || y < area.top || y > area.bottom) { closeOnLeave(); return; }
+      if (x === null || y === null || x < area.left || x > area.right || y < area.top || y > area.bottom) { closeOnLeave(); syncActive(); return; }
       const value = chart.scales.x.getValueForPixel(x);
       if (typeof value !== 'number') return;
       canvasRef.current = chart.canvas;
       const bucket = modelSpeedBucketIndex(value, speed.buckets.length);
-      setHover((previous) => previous?.source === speed && previous.bucket === bucket && previous.x === x && previous.y === y && previous.touch === touchInput.current
-        ? previous : { source: speed, bucket, x, y, touch: touchInput.current });
+      const zero = chart.scales.y.getPixelForValue(0);
+      let hitIndex: number | null = null;
+      let nearest = Infinity;
+      // Tooltip 命中整组；高亮单独按当前圆点或竖线几何命中，空白与缺样本不猜测最近模型。
+      selected.forEach((model, datasetIndex) => {
+        if (modelSpeedMean(models.get(model)?.samples[bucket]) === null) return;
+        const point = chart.getDatasetMeta(datasetIndex).data[bucket] as PointElement | undefined;
+        if (!point || point.skip) return;
+        const dotDistance = Math.hypot(x - point.x, y - point.y);
+        const dx = Math.abs(x - point.x);
+        const radius = isMobile ? 2.5 : 4;
+        const onDot = dotDistance <= radius + 3;
+        const onStem = dx <= 3 && y >= Math.min(point.y, zero) && y <= Math.max(point.y, zero);
+        const distance = onDot ? dotDistance : onStem ? dx + radius + 3 : Infinity;
+        if (distance < nearest) { nearest = distance; hitIndex = datasetIndex; }
+      });
+      highlighted.current = hitIndex === null ? null : { source: speed, selected, datasetIndex: hitIndex, index: bucket };
+      syncActive();
+      const model = hitIndex === null ? null : selected[hitIndex];
+      setHover((previous) => previous?.source === speed && previous.bucket === bucket && previous.model === model && previous.x === x && previous.y === y && previous.touch === touchInput.current
+        ? previous : { source: speed, bucket, model, x, y, touch: touchInput.current });
     },
-  }), [models, selected, speed, pickerOpen, closeOnLeave, beforeDatasetsUpdate]);
+  }), [models, selected, speed, pickerOpen, closeOnLeave, beforeDatasetsUpdate, isMobile]);
   const liveHandlers = useRef(handlers);
   useLayoutEffect(() => { liveHandlers.current = handlers; }, [handlers]);
   // react-chartjs-2 只在建图时注册局部插件，稳定实例从最新 handlers 读取选择和刷新数据。
@@ -137,6 +182,7 @@ export function AnalysisModelSpeedCard({ speed: response, granularity = 'hourly'
     color: colorAt(colors[row.model], isDark),
     detail: row.mean === null ? t('usage_stats.no_data') : `${row.mean.toFixed(1)} t/s`,
     secondary: t('usage_stats.model_speed_samples', { samples: row.count.toLocaleString(locale) }),
+    highlighted: row.model === visibleHover.model,
   })) : [];
   const legendItems = selected.map((model) => ({ model, color: colorAt(colors[model], isDark), mean: modelSpeedCombinedMean(models.get(model)?.samples ?? []) }));
 
