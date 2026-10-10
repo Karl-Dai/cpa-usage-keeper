@@ -15,22 +15,36 @@ type analysisModelSpeedAccumulator struct {
 	models map[string]*dto.AnalysisModelSpeedSeriesRecord
 }
 
-// newAnalysisModelSpeed 按源桶索引连续分组；自然日用 AddDate，保留夏令时的真实边界。
+// newAnalysisModelSpeed 按源桶索引连续分组；日边界由独立历法日期生成，避免午夜跳时后的钟点持续漂移。
 func newAnalysisModelSpeed(start, end time.Time, daily bool) *analysisModelSpeedAccumulator {
 	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
-	next := func(at time.Time) time.Time { return at.Add(time.Hour) }
-	if daily {
-		next = func(at time.Time) time.Time { return at.AddDate(0, 0, 1) }
-		day := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
-		if day.Before(start) {
-			day = next(day)
-		}
-		start = day
-	}
 	boundaries := []time.Time{start}
-	for at := start; at.Before(end); {
-		at = next(at)
-		boundaries = append(boundaries, at)
+	if daily {
+		location := start.Location()
+		// UTC 这里只承载年月日的递增，不作为业务桶时区。每个日期仍按正式聚合的本地零点生成。
+		date := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+		boundary := func(date time.Time) time.Time {
+			return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, location)
+		}
+		if boundary(date).Before(start) {
+			date = date.AddDate(0, 0, 1)
+		}
+		start = boundary(date)
+		boundaries[0] = start
+		for date = date.AddDate(0, 0, 1); boundaries[len(boundaries)-1].Before(end); date = date.AddDate(0, 0, 1) {
+			next := boundary(date)
+			if next.After(end) {
+				next = end
+			}
+			if next.After(boundaries[len(boundaries)-1]) {
+				boundaries = append(boundaries, next)
+			}
+		}
+	} else {
+		for at := start; at.Before(end); {
+			at = at.Add(time.Hour)
+			boundaries = append(boundaries, at)
+		}
 	}
 	count := len(boundaries) - 1
 	bucketCount := min(count, analysisModelSpeedMaxBuckets)

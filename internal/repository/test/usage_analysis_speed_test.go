@@ -116,3 +116,46 @@ func TestAnalysisModelSpeedDailyGroupsFollowDSTBoundaries(t *testing.T) {
 		t.Fatal("wrong final boundary")
 	}
 }
+
+func TestAnalysisModelSpeedDailyGroupsAcrossMidnightDST(t *testing.T) {
+	location, err := time.LoadLocation("America/Santiago")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := time.Local
+	time.Local = location
+	t.Cleanup(func() { time.Local = previous })
+	db := openTestDatabase(t)
+	start := time.Date(2026, 9, 4, 0, 0, 0, 0, location)
+	end := time.Date(2026, 9, 9, 0, 0, 0, 0, location)
+	if err := db.Create(&entities.CPAAPIKey{APIKey: "midnight-dst-key"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	cost, unavailable := 0.0, int64(0)
+	for day := 4; day < 9; day++ {
+		// 与正式日聚合一致，逐个事件日期独立生成午夜，而非沿用前一边界钟点。
+		row := entities.UsageOverviewDailyStat{BucketStart: time.Date(2026, 9, day, 0, 0, 0, 0, location), APIGroupKey: "midnight-dst-key", Model: "a", SpeedTPSSum: float64(day), SpeedSampleCount: 1, TotalTokens: 1, CostUSD: &cost, UnavailableCostCount: &unavailable}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := repository.BuildAnalysisWithFilter(db, repodto.UsageQueryFilter{Range: "custom", CustomUnit: "day", StartTime: &start, EndTime: &end, EndExclusive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	speed := result.ModelSpeed
+	if len(speed.Buckets) != 5 || len(speed.Series) != 1 {
+		t.Fatalf("wrong calendar grouping: %+v", speed)
+	}
+	for i, bucket := range speed.Buckets {
+		wantStart := time.Date(2026, 9, 4+i, 0, 0, 0, 0, location)
+		wantEnd := time.Date(2026, 9, 5+i, 0, 0, 0, 0, location)
+		if !bucket.Start.Equal(wantStart) || !bucket.End.Equal(wantEnd) {
+			t.Fatalf("bucket %d: %+v, want %s..%s", i, bucket, wantStart, wantEnd)
+		}
+		if speed.Series[0].Samples[i].SpeedSampleCount != 1 {
+			t.Fatalf("wrong sample assignment at %d", i)
+		}
+		assertFloatClose(t, *speed.Series[0].Samples[i].MeanTPS, float64(i+4))
+	}
+}
