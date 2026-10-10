@@ -52,7 +52,7 @@ export function ModelSpeedTooltip({ canvasRef, x, y, touch, theme, title, rows, 
     <strong className={styles.tooltipTitle} style={{ color: tooltipStyle.titleColor, marginBottom: tooltipStyle.titleMarginBottom }}>{title}</strong>
     <ol className={styles.tooltipRows} style={{ gap: tooltipStyle.bodySpacing }}>
       {rows.map((row) => <li key={row.model} className={row.highlighted ? styles.tooltipRowHighlighted : undefined}
-        style={row.highlighted ? { backgroundColor: theme.grid } : undefined} data-model-speed-highlighted={row.highlighted || undefined}>
+        data-model-speed-highlighted={row.highlighted || undefined}>
         <span className={styles.tooltipDot} style={{ backgroundColor: row.color }} aria-hidden="true" />
         <span><strong>{row.model}</strong> · <strong className={styles.tooltipValue} style={{ color: tooltipStyle.titleColor }} data-model-speed-value>{row.detail}</strong>
           <br /><small className={styles.tooltipSecondary}>{row.secondary}</small></span>
