@@ -58,6 +58,7 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
       const color = colorAt(colors[model], isDark);
       const series = models.get(model);
       return [series?.first_half, series?.second_half].map((sample, half) => ({
+        id: JSON.stringify([model, half]),
         label: model,
         data: [{ x: modelSpeedMean(sample), y: row }],
         backgroundColor: half === 0 ? 'transparent' : color,
@@ -170,7 +171,7 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
         : selected.length === 0 ? <div className={`${panelStyles.emptyState} ${styles.empty}`}>{t(candidates.length === 0 ? 'usage_stats.no_data' : 'usage_stats.model_speed_empty_selection')}</div>
         : <div className={styles.chart} onPointerDown={(event) => { touchInput.current = event.pointerType === 'touch'; }}
           onPointerMove={(event) => { if (event.pointerType === 'mouse') touchInput.current = false; }}>
-          <Scatter data={chartData} options={chartOptions} plugins={[plugin]} />
+          <Scatter data={chartData} datasetIdKey="id" options={chartOptions} plugins={[plugin]} />
         </div>}
       <ModelSpeedLegend items={legendItems} />
     </div>
