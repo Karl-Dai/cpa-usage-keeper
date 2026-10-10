@@ -22,9 +22,9 @@ let root: Root;
 beforeEach(() => { localStorage.clear(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 const render = async (response = speed, loading = false) => { await act(async () => root.render(<RealtimeModelSpeedCard speed={response} loading={loading} isDark={false} isMobile={false} timezone="Asia/Shanghai" />)); };
-const hover = async (row: number, plugin = captured.plugins[0], type: 'mousemove' | 'click' | 'mouseout' = 'mousemove') => {
-  const chart = { canvas: container.querySelector('canvas'), chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { y: { getValueForPixel: (value: number) => value } } } as unknown as Chart<'scatter'>;
-  await act(async () => plugin.afterEvent!(chart, { event: { type, x: 100, y: row, native: null }, replay: false, inChartArea: true }, {}));
+const hover = async (row: number, plugin = captured.plugins[0], type: 'mousemove' | 'click' | 'mouseout' = 'mousemove', x = 100) => {
+  const chart = { getDatasetMeta: (index: number) => ({ data: [{ x: index % 2 === 0 ? 40 : 80, y: Math.floor(index / 2) }] }), canvas: container.querySelector('canvas'), chartArea: { left: 0, right: 300, top: 0, bottom: 300 }, scales: { y: { getValueForPixel: (value: number) => value } } } as unknown as Chart<'scatter'>;
+  await act(async () => plugin.afterEvent!(chart, { event: { type, x, y: row, native: null }, replay: false, inChartArea: true }, {}));
 };
 
 it('uses two distinct markers per model, null single-side gaps, and one zero-based axis', async () => {
@@ -154,4 +154,21 @@ it('shows no data instead of an impossible selection prompt for an empty availab
   await render({ available: true, series: [] });
   expect(container.textContent).toContain('usage_stats.no_data');
   expect(container.textContent).not.toContain('usage_stats.model_speed_empty_selection');
+});
+
+
+it('highlights only the pointed half and clears emphasis over the connector or a missing half', async () => {
+  await render();
+  const highlighted = () => document.querySelector('[data-model-speed-highlighted]')?.textContent;
+  await hover(1, captured.plugins[0], 'mousemove', 40);
+  expect(highlighted()).toContain('usage_stats.model_speed_first_half');
+  await hover(1, captured.plugins[0], 'mousemove', 80);
+  expect(highlighted()).toContain('usage_stats.model_speed_second_half');
+  await hover(1, captured.plugins[0], 'mousemove', 60);
+  expect(highlighted()).toBeUndefined();
+  expect(document.querySelectorAll('[data-model-speed-tooltip] li')).toHaveLength(2);
+  await hover(2, captured.plugins[0], 'mousemove', 40);
+  expect(highlighted()).toBeUndefined();
+  await hover(2, captured.plugins[0], 'mousemove', 80);
+  expect(highlighted()).toContain('usage_stats.model_speed_second_half');
 });

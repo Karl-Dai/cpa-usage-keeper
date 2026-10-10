@@ -17,7 +17,7 @@ import usageStyles from '@/pages/UsagePage.module.scss';
 import styles from './ModelSpeedChart.module.scss';
 
 type SpeedPoint = { x: number | null; y: number };
-type Hover = { source: RealtimeModelSpeedPayload; model: string; x: number; y: number; touch: boolean };
+type Hover = { source: RealtimeModelSpeedPayload; model: string; half: number | null; x: number; y: number; touch: boolean };
 const EMPTY_SPEED: RealtimeModelSpeedPayload = { available: false, series: [] };
 const colorAt = (slot: number | undefined, isDark: boolean) => {
   const color = USAGE_CHART_COMPOSITION_COLORS[slot ?? 0];
@@ -104,10 +104,21 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
       if (x === null || y === null || x < area.left || x > area.right || y < area.top || y > area.bottom) { closeOnLeave(); return; }
       const value = chart.scales.y.getValueForPixel(y);
       if (typeof value !== 'number') return;
-      const model = selected[modelSpeedBucketIndex(value, selected.length)];
+      const row = modelSpeedBucketIndex(value, selected.length);
+      const model = selected[row];
+      const series = models.get(model);
+      let half: number | null = null;
+      let nearest = Infinity;
+      [series?.first_half, series?.second_half].forEach((sample, index) => {
+        if (modelSpeedMean(sample) === null) return;
+        const point = chart.getDatasetMeta(row * 2 + index).data[0];
+        if (!point) return;
+        const distance = Math.hypot(x - point.x, y - point.y);
+        if (distance <= radius + 3 && distance < nearest) { half = index; nearest = distance; }
+      });
       canvasRef.current = chart.canvas;
-      setHover((previous) => previous?.source === speed && previous.model === model && previous.x === x && previous.y === y && previous.touch === touchInput.current
-        ? previous : { source: speed, model, x, y, touch: touchInput.current });
+      setHover((previous) => previous?.source === speed && previous.model === model && previous.half === half && previous.x === x && previous.y === y && previous.touch === touchInput.current
+        ? previous : { source: speed, model, half, x, y, touch: touchInput.current });
     },
   }), [selected, models, colors, isDark, radius, speed, pickerOpen, closeOnLeave, theme, noDataLabel, beforeDatasetsUpdate]);
   const liveHandlers = useRef(handlers);
@@ -145,9 +156,10 @@ export function RealtimeModelSpeedCard({ speed: response, loading, isDark, isMob
   const tooltipRows = visibleHover ? [
     { sample: hoveredModel?.first_half, label: firstLabel, start: speed.start, end: speed.mid },
     { sample: hoveredModel?.second_half, label: secondLabel, start: speed.mid, end: speed.end },
-  ].map(({ sample, label, start, end }) => {
+  ].map(({ sample, label, start, end }, half) => {
     const mean = modelSpeedMean(sample);
     return { model: label, color: colorAt(colors[visibleHover.model], isDark),
+      highlighted: visibleHover.half === half,
       detail: mean === null ? t('usage_stats.no_data') : `${mean.toFixed(1)} t/s`,
       secondary: `${formatModelSpeedTimeRange(start, end, timezone, locale)} · ${t('usage_stats.model_speed_samples', { samples: (sample?.speed_sample_count ?? 0).toLocaleString(locale) })}` };
   }) : [];
