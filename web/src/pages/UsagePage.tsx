@@ -1,5 +1,6 @@
 import { CredentialEditModal } from '@/components/usage/credentials/CredentialEditModal';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
+import type { ModelSpeedRefreshSignal } from '@/components/usage/model-speed/modelSpeedAnimation';
 import { useState, useMemo, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, appPath, createUsageEventRequestLogDownloadURL, exportUsageEvents, fetchAnalysis, fetchAnalysisLatency, fetchAuthSessions, fetchCpaApiKeyOptions, fetchCpaApiKeySettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestLog, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentity, fetchVersion, isCostsBusy, isUsageRangeBoundsConflict, logout, revokeAuthSession, updateAuthSessionAlias, updateCpaApiKeyAlias, type UsageEventsExportFormat } from '@/lib/api';
@@ -922,6 +923,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const requestLogControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+  const [analysisModelSpeedRefresh, setAnalysisModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
+  const [realtimeModelSpeedRefresh, setRealtimeModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
   const [pageVisible, setPageVisible] = useState(isUsagePageVisible);
   const showTopNotice = useCallback((kind: TopNoticeKind, message: string) => {
     if (topNoticeTimerRef.current !== null) {
@@ -972,7 +975,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(null);
   const analysisLoadedScopeRef = useRef<string | null>(null);
-  const visibleAnalysis = analysisLoadedScopeRef.current === JSON.stringify([usageRangeQuery, requestApiKeyId]) ? analysisData : null;
+  const analysisQueryKey = JSON.stringify([usageRangeQuery, requestApiKeyId]);
+  const visibleAnalysis = analysisLoadedScopeRef.current === analysisQueryKey ? analysisData : null;
   const [analysisLatencyLoading, setAnalysisLatencyLoading] = useState(false);
   const [analysisLatencyError, setAnalysisLatencyError] = useState('');
   const [analysisLatencyData, setAnalysisLatencyData] = useState<AnalysisLatencyDiagnostics | null>(null);
@@ -1173,7 +1177,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired, showTopNotice, t]);
 
-  const loadAnalysis = useCallback(async () => {
+  const loadAnalysis = useCallback(async (replaySpeed = false) => {
     if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     const scope = JSON.stringify([usageRangeQuery, requestApiKeyId]);
     const sameScope = analysisLoadedScopeRef.current === scope;
@@ -1195,6 +1199,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         if (analysisRequestControllerRef.current !== controller) return;
         analysisLoadedScopeRef.current = scope;
         setAnalysisData(response);
+        const speed = response.model_speed;
+        if (replaySpeed && speed) setAnalysisModelSpeedRefresh((previous) => ({ source: speed, revision: (previous?.revision ?? 0) + 1 }));
         setAnalysisLoading(false);
       },
       onCoreError: (error) => {
@@ -1712,7 +1718,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const refreshActiveTab = useCallback(async () => {
     if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
     if (activeTab === 'realtime') {
-      await loadRealtime();
+      await loadRealtime((response) => {
+        const speed = response.model_speed;
+        if (speed) setRealtimeModelSpeedRefresh((previous) => ({ source: speed, revision: (previous?.revision ?? 0) + 1 }));
+      });
       return;
     }
     if (activeTab === 'events') {
@@ -1724,7 +1733,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     if (activeTab === 'analysis') {
-      await loadAnalysis();
+      await loadAnalysis(true);
       return;
     }
     if (activeTab === 'settings') {
@@ -2209,6 +2218,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             {activeTab === 'realtime' && (
               <OverviewRealtimePanel
                 realtime={currentRealtime ?? undefined}
+                modelSpeedPreferenceScope={isEmbeddedInCPAMC ? 'admin:embed' : 'admin'}
+                modelSpeedQueryKey={JSON.stringify([realtimeWindow, requestApiKeyId])}
+                modelSpeedRefreshSignal={realtimeModelSpeedRefresh}
                 loading={realtimeLoading}
                 error={displayRealtimeError}
                 window={realtimeWindow}
@@ -2224,6 +2236,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 {analysisError && <div className={styles.errorBox}>{analysisError === 'COSTS_BUSY' ? t('usage_stats.costs_busy') : analysisError}</div>}
                 <AnalysisPanel
                   analysis={visibleAnalysis}
+                  modelSpeedPreferenceScope={isEmbeddedInCPAMC ? 'admin:embed' : 'admin'}
+                  modelSpeedQueryKey={analysisQueryKey}
+                  modelSpeedRefreshSignal={analysisModelSpeedRefresh}
                   loading={(analysisLoading || analysisError === 'COSTS_BUSY') && !visibleAnalysis}
                   latencyDiagnostics={analysisLatencyData}
                   latencyLoading={analysisLatencyLoading}

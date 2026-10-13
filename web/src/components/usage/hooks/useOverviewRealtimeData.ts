@@ -7,7 +7,7 @@ export interface UseOverviewRealtimeDataReturn {
   realtime: OverviewRealtimeBlock | null;
   loading: boolean;
   error: string;
-  loadRealtime: () => Promise<void>;
+  loadRealtime: (onLoaded?: (response: OverviewRealtimeBlock) => void) => Promise<void>;
 }
 
 export interface UseOverviewRealtimeDataOptions {
@@ -60,13 +60,14 @@ export function useOverviewRealtimeData(options: UseOverviewRealtimeDataOptions 
     realtimeQueryKey,
   });
 
-  const loadRealtime = useCallback(async () => {
+  const loadRealtime = useCallback(async (onLoaded?: (response: OverviewRealtimeBlock) => void) => {
     try {
       await loadUsageStatsRealtime({
         force: true,
         staleTimeMs: USAGE_STATS_STALE_TIME_MS,
         apiKeyId,
         realtimeWindow,
+        onLoaded,
       });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {

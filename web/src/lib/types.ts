@@ -1,6 +1,7 @@
 export type AuthRole = 'admin' | 'api_key_viewer'
 
 export interface AuthSessionAPIKeySummary {
+  id?: string
   display_key: string
   alias?: string
 }
@@ -208,8 +209,23 @@ export interface RealtimeInsights {
   outcomes: Array<{ bucket: string; requests: number; failures: number }>
 }
 
+export interface RealtimeModelSpeedPayload {
+  available: boolean
+  start?: string
+  mid?: string
+  end?: string
+  series: {
+    model: string
+    total_tokens: number
+    speed_sample_count: number
+    first_half: AnalysisModelSpeedSample
+    second_half: AnalysisModelSpeedSample
+  }[]
+}
+
 export interface OverviewRealtimeBlock {
   insights?: RealtimeInsights
+  model_speed?: RealtimeModelSpeedPayload
   window: OverviewRealtimeWindow
   timezone?: string
   bucket_seconds: number
@@ -734,6 +750,24 @@ export interface AnalysisModelUsagePayload {
   series: AnalysisModelUsageSeries[]
 }
 
+export interface AnalysisModelSpeedSample {
+  speed_tps_sum: number
+  speed_sample_count: number
+  mean_tps: number | null
+}
+
+export interface AnalysisModelSpeedPayload {
+  range_start?: string
+  range_end?: string
+  buckets: { start: string; end: string }[]
+  series: {
+    model: string
+    total_tokens: number
+    speed_sample_count: number
+    samples: AnalysisModelSpeedSample[]
+  }[]
+}
+
 export interface AnalysisCompositionItem {
   key: string
   label: string
@@ -826,6 +860,7 @@ export interface AnalysisResponse {
   range_start?: string
   range_end?: string
   token_usage: AnalysisTokenUsageBucket[]
+  model_speed?: AnalysisModelSpeedPayload
   model_usage?: AnalysisModelUsagePayload
   api_key_composition: AnalysisCompositionItem[]
   model_composition: AnalysisCompositionItem[]

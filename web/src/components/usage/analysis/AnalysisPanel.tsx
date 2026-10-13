@@ -11,7 +11,10 @@ import { createCompositionLabelsPlugin } from './compositionLabels';
 import { compositionGeometryPlugin } from './compositionGeometry';
 import { AnalysisRankingList, getAnalysisRankingColor, useAnalysisHighlight, type AnalysisRankingItem } from './analysisRanking';
 import { useTopModelsTooltip } from './topModelsTooltip';
+import { formatBucketLabel } from './analysisTimeLabels';
 import styles from './AnalysisPanel.module.scss';
+import { AnalysisModelSpeedCard } from '../model-speed/AnalysisModelSpeedCard';
+import type { ModelSpeedRefreshSignal } from '../model-speed/modelSpeedAnimation';
 import { LatencyScatterChart } from '../LatencyScatterChart';
 
 interface AnalysisPanelProps {
@@ -23,6 +26,9 @@ interface AnalysisPanelProps {
   isDark: boolean;
   isMobile: boolean;
   compositionDimensions?: readonly AnalysisCompositionDimension[];
+  modelSpeedPreferenceScope?: string | null;
+  modelSpeedQueryKey?: string;
+  modelSpeedRefreshSignal?: ModelSpeedRefreshSignal;
 }
 
 export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider';
@@ -451,47 +457,6 @@ const getHeatmapVisualIntensity = (value: number, maxValue: number) => {
   if (value <= 0 || maxValue <= 0) return 0;
   const rawIntensity = value / maxValue;
   return 0.05 + 0.95 * Math.pow(rawIntensity, 0.65);
-};
-
-const getIntlTimeZone = (timezone: string | undefined) => {
-  const trimmed = timezone?.trim();
-  if (!trimmed || trimmed === 'Local') return undefined;
-  return trimmed;
-};
-
-const formatBucketLabelFromLiteral = (bucket: string, granularity: AnalysisResponse['granularity']) => {
-  const match = bucket.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}))?/);
-  if (!match) return null;
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = match[4] ? Number(match[4]) : NaN;
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  if (granularity === 'daily') {
-    return `${month}/${day}`;
-  }
-  if (!Number.isFinite(hour) || hour < 0 || hour > 23) return null;
-  return `${String(hour).padStart(2, '0')}:00`;
-};
-
-const formatBucketLabel = (bucket: string, granularity: AnalysisResponse['granularity'], timezone?: string) => {
-  const date = new Date(bucket);
-  if (Number.isNaN(date.getTime())) return bucket;
-  const timeZone = getIntlTimeZone(timezone);
-  // Analysis bucket 已按项目 TZ 聚合，前端必须显式使用响应 TZ，避免被 CI 或浏览器本地时区二次换算。
-  try {
-    if (granularity === 'daily') {
-      return new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric', timeZone }).format(date);
-    }
-    const hour = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone }).format(date);
-    return `${hour}:00`;
-  } catch {
-    const literalLabel = formatBucketLabelFromLiteral(bucket, granularity);
-    if (literalLabel) return literalLabel;
-  }
-  if (granularity === 'daily') {
-    return `${date.getMonth() + 1}/${date.getDate()}`;
-  }
-  return `${String(date.getHours()).padStart(2, '0')}:00`;
 };
 
 const compareModelNames = (left: string, right: string) => {
@@ -1692,6 +1657,9 @@ export function AnalysisPanel({
   isDark,
   isMobile,
   compositionDimensions = DEFAULT_COMPOSITION_DIMENSIONS,
+  modelSpeedPreferenceScope = 'admin',
+  modelSpeedQueryKey = '',
+  modelSpeedRefreshSignal,
 }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
@@ -1726,8 +1694,9 @@ export function AnalysisPanel({
           isMobile={isMobile}
         />
       </div>
+      <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
-        <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
+        <AnalysisModelSpeedCard speed={analysis?.model_speed} granularity={analysis?.granularity ?? 'hourly'} loading={loading} isDark={isDark} isMobile={isMobile} timezone={analysis?.timezone} preferenceScope={modelSpeedPreferenceScope} queryKey={modelSpeedQueryKey} refreshSignal={modelSpeedRefreshSignal} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />

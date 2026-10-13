@@ -67,6 +67,7 @@ type sessionResponse struct {
 }
 
 type sessionAPIKeyResponse struct {
+	ID         string `json:"id"`
 	DisplayKey string `json:"display_key"`
 	Alias      string `json:"alias,omitempty"`
 }
@@ -260,6 +261,7 @@ func (h *authHandler) getSession(c *gin.Context) {
 			return
 		}
 		response.APIKey = &sessionAPIKeyResponse{
+			ID:         strconv.FormatInt(row.ID, 10),
 			DisplayKey: helper.CPAAPIKeyMaskedDisplayKey(row),
 			Alias:      row.KeyAlias,
 		}

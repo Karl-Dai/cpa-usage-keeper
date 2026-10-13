@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyAnalysis, fetchKeyAnalysisLatency, isCostsBusy, isUsageRangeBoundsConflict } from '@/lib/api';
 import type { AnalysisLatencyDiagnostics, AnalysisResponse, AuthSessionAPIKeySummary, UsageCustomRange, UsageTimeRange } from '@/lib/types';
 import { AnalysisPanel, TimeRangeControl } from '@/components/usage';
+import type { ModelSpeedRefreshSignal } from '@/components/usage/model-speed/modelSpeedAnimation';
 import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
 import type { KeyViewerPath } from '@/features/key-viewer/navigation';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -40,6 +41,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
   const [latencyLoading, setLatencyLoading] = useState(false);
   const [latencyError, setLatencyError] = useState('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+  const [modelSpeedRefresh, setModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
   const requestControllerRef = useRef<AbortController | null>(null);
   const loadedAnalysisScopeRef = useRef<{ rangeKey: string; apiKey?: AuthSessionAPIKeySummary } | null>(null);
   const analysisTimeZoneRef = useRef(timeRangeState.timeZone);
@@ -79,7 +81,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     persistKeyViewerTimeRange(nextState);
   }, [rangeTimeZone, timeRangeState]);
 
-  const loadAnalysis = useCallback(async () => {
+  const loadAnalysis = useCallback(async (replaySpeed = false) => {
     if (!usageRangeQuery.valid) return;
     requestControllerRef.current?.abort();
     const controller = new AbortController();
@@ -97,6 +99,8 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
       analysisTimeZoneRef.current = response.timezone;
       loadedAnalysisScopeRef.current = { rangeKey: rangeKey!, apiKey };
       setAnalysis(response);
+      const speed = response.model_speed;
+      if (replaySpeed && speed) setModelSpeedRefresh((previous) => ({ source: speed, revision: (previous?.revision ?? 0) + 1 }));
       setAnalysisLoading(false);
     }, (error: unknown) => {
       if (controller.signal.aborted || requestControllerRef.current !== controller) return;
@@ -144,7 +148,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     if (manualRefreshLoading) return;
     setManualRefreshLoading(true);
     try {
-      await loadAnalysis();
+      await loadAnalysis(true);
     } finally {
       setManualRefreshLoading(false);
     }
@@ -184,6 +188,9 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         isDark={isDark}
         isMobile={isMobile}
         compositionDimensions={['model']}
+        modelSpeedPreferenceScope={apiKey?.id ? `key-viewer:${apiKey.id}` : null}
+        modelSpeedQueryKey={JSON.stringify([rangeKey, apiKey?.id ?? null])}
+        modelSpeedRefreshSignal={modelSpeedRefresh}
       />
     </KeyViewerShell>
   );

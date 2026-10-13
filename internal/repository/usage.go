@@ -429,7 +429,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		if err != nil {
 			return nil, err
 		}
-		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup)
+		applyAnalysisDailyRows(record, dailyRows, dailyIdentityLookup, dailyStart, dailyEnd)
 		return record, nil
 	}
 
@@ -446,7 +446,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 	if err != nil {
 		return nil, err
 	}
-	applyAnalysisHourlyRows(record, rows, identityLookup)
+	applyAnalysisHourlyRows(record, rows, identityLookup, fullStart, fullEnd)
 	fillAnalysisFullDayHourlyBuckets(record, filter)
 	return record, nil
 }
@@ -550,7 +550,8 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 }
 
 // applyAnalysisHourlyRows 保留趋势、构成和排序输入的原Token／请求口径，金额只取已存小时列。
-func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverviewStatProjection, identityLookup analysisIdentityLookup) {
+func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverviewStatProjection, identityLookup analysisIdentityLookup, start, end time.Time) {
+	speed := newAnalysisModelSpeed(start, end, false)
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	modelUsageTotals := map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -561,14 +562,17 @@ func applyAnalysisHourlyRows(record *dto.AnalysisRecord, rows []analysisOverview
 	for _, row := range rows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart).Truncate(time.Hour)
 		cost, costAvailable := *row.CostUSD, *row.UnavailableCostCount == 0
+		speed.add(row, bucket)
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(identityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
+	record.ModelSpeed = speed.finalize()
 	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
 // applyAnalysisDailyRows 沿自然日桶聚合已存费用和原Token，供长范围图表及四维统计复用。
-func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup) {
+func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOverviewStatProjection, dailyIdentityLookup analysisIdentityLookup, start, end time.Time) {
+	speed := newAnalysisModelSpeed(start, end, true)
 	bucketTotals := map[time.Time]*dto.AnalysisTokenUsageBucketRecord{}
 	modelUsageTotals := map[analysisModelUsageKey]*dto.AnalysisModelUsageRecord{}
 	apiTotals := map[string]*dto.AnalysisCompositionRecord{}
@@ -579,9 +583,11 @@ func applyAnalysisDailyRows(record *dto.AnalysisRecord, dailyRows []analysisOver
 	for _, row := range dailyRows {
 		bucket := timeutil.NormalizeStorageTime(row.BucketStart)
 		cost, costAvailable := *row.CostUSD, *row.UnavailableCostCount == 0
+		speed.add(row, bucket)
 		applyAnalysisRow(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, heatmapTotals, bucket, row.APIGroupKey, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 		applyAnalysisIdentityComposition(dailyIdentityLookup, authFileTotals, aiProviderTotals, row.AuthIndex, row.RequestCount, row.InputTokens, row.OutputTokens, row.CacheReadTokens, row.CacheCreationTokens, row.ReasoningTokens, row.TotalTokens, cost, costAvailable)
 	}
+	record.ModelSpeed = speed.finalize()
 	finalizeAnalysisRecord(record, bucketTotals, modelUsageTotals, apiTotals, modelTotals, authFileTotals, aiProviderTotals, heatmapTotals)
 }
 
@@ -1403,6 +1409,7 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, recent
 	apiKeyUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	authFileUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
 	aiProviderUsage := map[string]*usageOverviewRealtimeTopAccumulator{}
+	modelSpeed := newRealtimeModelSpeed(start, end, cacheOK)
 
 	for _, realtimeEvent := range events {
 		// 缓存事件已经是最小投影，这里转回 UsageEvent 复用已存金额、Token 和请求统计处理。
@@ -1415,6 +1422,9 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, recent
 		}
 		// visibleEvent 控制当前占比统计范围，避免预热事件进入当前窗口语义。
 		visibleEvent := !timestamp.Before(start)
+		if cacheOK && visibleEvent && timestamp.Before(end) {
+			modelSpeed.add(event, timestamp)
+		}
 		// 请求水平包含成功和失败请求。
 		bucket := &buckets[index]
 		bucket.requests++
@@ -1463,7 +1473,9 @@ func buildUsageOverviewRealtime(db *gorm.DB, filter dto.UsageQueryFilter, recent
 	}
 
 	// 最后统一把 bucket、percentile 和当前用量 accumulator 映射成 API DTO。
-	return finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage), nil
+	result := finalizeUsageOverviewRealtime(window, span, start, end, buckets, warmupBucketCount, modelUsage, apiKeyUsage, authFileUsage, aiProviderUsage)
+	result.ModelSpeed = modelSpeed.finalize(modelUsage)
+	return result, nil
 }
 
 func usageEventGenerateEnabled(generate *bool) bool {

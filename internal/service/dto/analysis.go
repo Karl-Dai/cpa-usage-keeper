@@ -29,6 +29,32 @@ type AnalysisModelUsage struct {
 	Requests    int64
 }
 
+// AnalysisModelSpeed 保存跨源桶的 sum/count，显示桶在仓储层使用真实时间边界合并。
+type AnalysisModelSpeed struct {
+	RangeStart *time.Time
+	RangeEnd   *time.Time
+	Buckets    []AnalysisModelSpeedBucket
+	Series     []AnalysisModelSpeedSeries
+}
+
+type AnalysisModelSpeedBucket struct {
+	Start time.Time
+	End   time.Time
+}
+
+type AnalysisModelSpeedSample struct {
+	SpeedTPSSum      float64
+	SpeedSampleCount int64
+	MeanTPS          *float64
+}
+
+type AnalysisModelSpeedSeries struct {
+	Model            string
+	TotalTokens      int64
+	SpeedSampleCount int64
+	Samples          []AnalysisModelSpeedSample
+}
+
 type AnalysisCompositionItem struct {
 	Key                 string
 	Label               string
@@ -109,6 +135,7 @@ type AnalysisSnapshot struct {
 	RangeStart            *time.Time
 	RangeEnd              *time.Time
 	TokenUsage            []AnalysisTokenUsageBucket
+	ModelSpeed            AnalysisModelSpeed
 	ModelUsage            []AnalysisModelUsage
 	APIKeyComposition     []AnalysisCompositionItem
 	ModelComposition      []AnalysisCompositionItem

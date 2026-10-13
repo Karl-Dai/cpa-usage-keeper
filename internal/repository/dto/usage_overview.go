@@ -77,6 +77,29 @@ type RealtimeCurrentUsageRecord struct {
 	AIProviders []RealtimeUsageTopItemRecord
 }
 
+// RealtimeModelSpeedRecord 只承载可见缓存窗口两半的逐请求速度统计。
+type RealtimeModelSpeedRecord struct {
+	Available bool
+	Start     time.Time
+	Mid       time.Time
+	End       time.Time
+	Series    []RealtimeModelSpeedSeriesRecord
+}
+
+type RealtimeModelSpeedSeriesRecord struct {
+	Model            string
+	TotalTokens      int64
+	SpeedSampleCount int64
+	FirstHalf        RealtimeModelSpeedSampleRecord
+	SecondHalf       RealtimeModelSpeedSampleRecord
+}
+
+type RealtimeModelSpeedSampleRecord struct {
+	SpeedTPSSum      float64
+	SpeedSampleCount int64
+	MeanTPS          *float64
+}
+
 // UsageOverviewRealtimeRecord 是 Overview 页面实时图表区使用的数据块。
 type UsageOverviewRealtimeRecord struct {
 	Insights       RealtimeInsightsRecord
@@ -85,6 +108,7 @@ type UsageOverviewRealtimeRecord struct {
 	WindowStart    time.Time
 	WindowEnd      time.Time
 	TokenVelocity  []RealtimeTokenVelocityPointRecord
+	ModelSpeed     RealtimeModelSpeedRecord
 	LatencyScatter RealtimeLatencyScatterRecord
 	CurrentUsage   RealtimeCurrentUsageRecord
 	RequestLevel   []RealtimeRequestLevelPointRecord
