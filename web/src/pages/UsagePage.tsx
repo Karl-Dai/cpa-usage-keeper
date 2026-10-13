@@ -1973,7 +1973,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     tpmSparkline,
     cacheReadRateSparkline,
     costSparkline
-  } = useSparklines({ usage, loading });
+  } = useSparklines({ usage: currentOverviewUsage, loading });
 
   const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
   const reserveDailyAverageCard = isDailyAverageRange({
@@ -2197,7 +2197,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'overview' && (
               <>
-                <ChartLifecycleProvider queryKey={JSON.stringify([usageRangeQuery, requestApiKeyId])} source={usage} refreshSignal={overviewChartRefresh}>
+                <ChartLifecycleProvider queryKey={JSON.stringify([usageRangeQuery, requestApiKeyId])} source={currentOverviewUsage} refreshSignal={overviewChartRefresh}>
                   <StatCards
                   usage={usage}
                   loading={overviewDisplayLoading}
