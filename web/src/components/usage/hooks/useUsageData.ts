@@ -17,7 +17,7 @@ export interface UseUsageDataReturn {
   loading: boolean;
   error: string;
   lastRefreshedAt: Date | null;
-  loadUsage: () => Promise<void>;
+  loadUsage: (onLoaded?: (response: UsageOverviewResponse) => void) => Promise<void>;
 }
 
 export interface UseUsageDataOptions {
@@ -47,10 +47,11 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
     [customEnd, customStart, customUnit, range],
   );
 
-  const loadUsage = useCallback(async () => {
+  const loadUsage = useCallback(async (onLoaded?: (response: UsageOverviewResponse) => void) => {
     if (!rangeQuery.valid) return;
     try {
       await loadUsageStats({
+        onLoaded,
         force: true,
         staleTimeMs: USAGE_STATS_STALE_TIME_MS,
         range: rangeQuery.range,

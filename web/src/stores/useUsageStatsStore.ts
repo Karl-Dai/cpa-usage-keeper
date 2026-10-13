@@ -5,6 +5,7 @@ import type { OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRangeUni
 export const USAGE_STATS_STALE_TIME_MS = 60_000;
 
 interface LoadUsageStatsOptions {
+  onLoaded?: (response: UsageOverviewResponse) => void;
   force?: boolean;
   staleTimeMs?: number;
   range?: UsageTimeRange;
@@ -69,6 +70,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
       force = false,
       staleTimeMs = USAGE_STATS_STALE_TIME_MS,
       range = '8h',
+      onLoaded,
       unit,
       start,
       end,
@@ -111,6 +113,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
           lastRefreshedAt: Date.now(),
           lastQueryKey: queryKey,
         });
+        onLoaded?.(overview);
       } catch (error) {
         if (controller.signal.aborted) {
           return;

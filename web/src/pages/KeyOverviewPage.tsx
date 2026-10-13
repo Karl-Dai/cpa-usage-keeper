@@ -1,3 +1,4 @@
+import { ChartLifecycleProvider, useChartRefresh } from '@/components/usage/charts/chartLifecycle';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -60,6 +61,7 @@ type KeyOverviewAutoRefreshOptions = {
 type KeyOverviewLoadOptions = {
   skipIfInFlight?: boolean;
   replayModelSpeed?: boolean;
+  replayCharts?: boolean;
 };
 
 type KeyOverviewRequestStartOptions = {
@@ -155,6 +157,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
   const [error, setError] = useState('');
   const [realtimeError, setRealtimeError] = useState('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+  const [overviewChartRefresh, markOverviewLoaded] = useChartRefresh();
+  const [comparisonChartRefresh, markComparisonsLoaded] = useChartRefresh();
   const [modelSpeedRefresh, setModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
   const overviewRequestControllerRef = useRef<AbortController | null>(null);
   const realtimeRequestControllerRef = useRef<AbortController | null>(null);
@@ -250,6 +254,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       loadedUsageAPIKeyRef.current = apiKey;
       setUsage(overview as UsageOverviewResponse as UsageOverviewPayload);
       setLoadedUsageRange(usageRangeQueryKey);
+      if (options.replayCharts) markOverviewLoaded(overview);
     } catch (nextError) {
       if (controller.signal.aborted) return;
       if (recoverRangeBoundsConflict(nextError)) return;
@@ -264,7 +269,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         overviewRequestControllerRef.current = null;
       }
     }
-  }, [apiKey, onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery, usageRangeQueryKey]);
+  }, [apiKey, onAuthRequired, recoverRangeBoundsConflict, usageRangeQuery, usageRangeQueryKey, markOverviewLoaded]);
 
   const loadRealtime = useCallback(async (options: KeyOverviewLoadOptions = {}) => {
     const { controller, skipped } = startKeyOverviewRequest({
@@ -323,8 +328,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       await loadRealtime(options);
       return;
     }
-    await Promise.all([loadOverview(options), loadActivity(options), loadComparisons({ skipIfInFlight: options.skipIfInFlight })]);
-  }, [loadActivity, loadComparisons, loadOverview, loadRealtime, page]);
+    await Promise.all([loadOverview(options), loadActivity(options), loadComparisons({ skipIfInFlight: options.skipIfInFlight, onLoaded: options.replayCharts ? markComparisonsLoaded : undefined })]);
+  }, [loadActivity, loadComparisons, loadOverview, loadRealtime, page, markComparisonsLoaded]);
 
   const handleAutoRefreshError = useCallback((nextError: unknown) => {
     if (nextError instanceof ApiError && nextError.status === 401) {
@@ -375,7 +380,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     if (refreshDisabled) return;
     setManualRefreshLoading(true);
     try {
-      await refreshKeyOverview({ replayModelSpeed: page === 'realtime' });
+      await refreshKeyOverview({ replayModelSpeed: page === 'realtime', replayCharts: true });
     } finally {
       setManualRefreshLoading(false);
     }
@@ -408,7 +413,8 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       {page === 'overview' && <>
       {(displayError || displayComparisonsError) && <div className={styles.errorBox}>{displayError || displayComparisonsError}</div>}
 
-      <StatCards
+      <ChartLifecycleProvider queryKey={JSON.stringify([usageRangeQueryKey, apiKey?.id])} source={visibleUsage} refreshSignal={overviewChartRefresh}>
+        <StatCards
         usage={visibleUsage}
         loading={overviewDisplayLoading}
         dailyAverageUsage={dailyAverageCardUsage}
@@ -422,6 +428,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
           cost: costSparkline,
         }}
       />
+      </ChartLifecycleProvider>
 
       <RecentActivityPanel
         activity={activity}
@@ -433,7 +440,9 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         onWindowChange={setActivityWindow}
       />
 
-      <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading || (comparisonsError === 'COSTS_BUSY' && !overviewComparisons)} keyViewer />
+      <ChartLifecycleProvider queryKey={JSON.stringify([usageRangeQueryKey, apiKey?.id])} source={overviewComparisons} refreshSignal={comparisonChartRefresh}>
+        <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading || (comparisonsError === 'COSTS_BUSY' && !overviewComparisons)} keyViewer />
+      </ChartLifecycleProvider>
       </>}
 
       {page === 'realtime' && <OverviewRealtimePanel

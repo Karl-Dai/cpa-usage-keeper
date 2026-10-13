@@ -1,3 +1,4 @@
+import { ChartLifecycleProvider, useChartRefresh } from '@/components/usage/charts/chartLifecycle';
 import { CredentialEditModal } from '@/components/usage/credentials/CredentialEditModal';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import type { ModelSpeedRefreshSignal } from '@/components/usage/model-speed/modelSpeedAnimation';
@@ -923,6 +924,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const requestLogControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+  const [overviewChartRefresh, markOverviewLoaded] = useChartRefresh();
+  const [comparisonChartRefresh, markComparisonsLoaded] = useChartRefresh();
+  const [chartRefresh, markChartLoaded] = useChartRefresh();
+  const [latencyRefresh, markLatencyLoaded] = useChartRefresh();
+  const loadedLatencyScopeRef = useRef<string | null>(null);
   const [analysisModelSpeedRefresh, setAnalysisModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
   const [realtimeModelSpeedRefresh, setRealtimeModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
   const [pageVisible, setPageVisible] = useState(isUsagePageVisible);
@@ -1181,6 +1187,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (!usageRangeQuery.valid || !apiKeyFilterReady) return;
     const scope = JSON.stringify([usageRangeQuery, requestApiKeyId]);
     const sameScope = analysisLoadedScopeRef.current === scope;
+    const sameLatencyScope = loadedLatencyScopeRef.current === scope;
     analysisRequestControllerRef.current?.abort();
     const controller = new AbortController();
     analysisRequestControllerRef.current = controller;
@@ -1190,7 +1197,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (!sameScope) setAnalysisData(null);
     setAnalysisLatencyLoading(true);
     setAnalysisLatencyError('');
-    setAnalysisLatencyData(null);
+    if (!sameLatencyScope) setAnalysisLatencyData(null);
 
     await loadAnalysisSections({
       loadCore: () => fetchAnalysis(usageRangeQuery, controller.signal, requestApiKeyId),
@@ -1199,6 +1206,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         if (analysisRequestControllerRef.current !== controller) return;
         analysisLoadedScopeRef.current = scope;
         setAnalysisData(response);
+        if (replaySpeed) markChartLoaded(response);
         const speed = response.model_speed;
         if (replaySpeed && speed) setAnalysisModelSpeedRefresh((previous) => ({ source: speed, revision: (previous?.revision ?? 0) + 1 }));
         setAnalysisLoading(false);
@@ -1206,7 +1214,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       onCoreError: (error) => {
         if (controller.signal.aborted || analysisRequestControllerRef.current !== controller) return;
         // 同一范围遇到费用维护暂缓时保留已成功显示的金额；换范围则不沿用旧数据。
-        if (!isCostsBusy(error) || !sameScope) setAnalysisData(null);
+        if (!sameScope) setAnalysisData(null);
         setAnalysisLoading(false);
         if (recoverRangeBoundsConflict(error)) return;
         if (error instanceof ApiError && error.status === 401) {
@@ -1218,12 +1226,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       },
       onLatencyLoaded: (response) => {
         if (analysisRequestControllerRef.current !== controller) return;
+        loadedLatencyScopeRef.current = scope;
         setAnalysisLatencyData(response);
+        if (replaySpeed) markLatencyLoaded(response);
         setAnalysisLatencyLoading(false);
       },
       onLatencyError: (error) => {
         if (controller.signal.aborted || analysisRequestControllerRef.current !== controller) return;
-        setAnalysisLatencyData(null);
+        if (!sameLatencyScope) setAnalysisLatencyData(null);
         setAnalysisLatencyLoading(false);
         if (recoverRangeBoundsConflict(error)) return;
         if (error instanceof ApiError && error.status === 401) {
@@ -1237,7 +1247,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (analysisRequestControllerRef.current === controller) {
       analysisRequestControllerRef.current = null;
     }
-  }, [apiKeyFilterReady, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery]);
+  }, [apiKeyFilterReady, onAuthRequired, recoverRangeBoundsConflict, requestApiKeyId, usageRangeQuery, markChartLoaded, markLatencyLoaded]);
 
   useEffect(() => {
     try {
@@ -1740,8 +1750,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadAuthSessions(), loadApiKeySettings(), pricingSettingsRef.current?.refresh()]);
       return;
     }
-    await Promise.all([loadUsage(), loadActivity(), loadComparisons()]);
-  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadComparisons, loadEventFilterOptions, loadEvents, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials]);
+    await Promise.all([loadUsage(markOverviewLoaded), loadActivity(), loadComparisons({ onLoaded: markComparisonsLoaded })]);
+  }, [activeTab, apiKeyFilterReady, credentialSectionVisibility.enabled, loadActivity, loadAnalysis, loadApiKeySettings, loadAuthSessions, loadComparisons, loadEventFilterOptions, loadEvents, loadRealtime, loadUsage, refreshCredentialDetail, refreshCredentials, markOverviewLoaded, markComparisonsLoaded]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
@@ -2187,7 +2197,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'overview' && (
               <>
-                <StatCards
+                <ChartLifecycleProvider queryKey={JSON.stringify([usageRangeQuery, requestApiKeyId])} source={usage} refreshSignal={overviewChartRefresh}>
+                  <StatCards
                   usage={usage}
                   loading={overviewDisplayLoading}
                   dailyAverageUsage={dailyAverageCardUsage}
@@ -2201,6 +2212,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     cost: costSparkline
                   }}
                 />
+                </ChartLifecycleProvider>
 
                 <RecentActivityPanel
                   activity={activity}
@@ -2211,7 +2223,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   requestIdentity={activityRequestIdentity}
                   onWindowChange={setActivityWindow}
                 />
-                <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
+                <ChartLifecycleProvider queryKey={JSON.stringify([usageRangeQuery, requestApiKeyId])} source={overviewComparisons} refreshSignal={comparisonChartRefresh}>
+                  <UsageComparisonCharts isDark={resolvedTheme === 'dark'} isMobile={isMobile} comparisons={overviewComparisons ?? undefined} loading={comparisonsLoading} />
+                </ChartLifecycleProvider>
               </>
             )}
 
@@ -2239,8 +2253,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   modelSpeedPreferenceScope={isEmbeddedInCPAMC ? 'admin:embed' : 'admin'}
                   modelSpeedQueryKey={analysisQueryKey}
                   modelSpeedRefreshSignal={analysisModelSpeedRefresh}
+                  chartRefreshSignal={chartRefresh}
+                  latencyRefreshSignal={latencyRefresh}
                   loading={(analysisLoading || analysisError === 'COSTS_BUSY') && !visibleAnalysis}
-                  latencyDiagnostics={analysisLatencyData}
+                  latencyDiagnostics={loadedLatencyScopeRef.current === JSON.stringify([usageRangeQuery, requestApiKeyId]) ? analysisLatencyData : null}
                   latencyLoading={analysisLatencyLoading}
                   latencyError={analysisLatencyError}
                   isDark={isDark}

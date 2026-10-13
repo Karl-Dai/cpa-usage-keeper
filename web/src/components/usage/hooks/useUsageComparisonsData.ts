@@ -18,6 +18,7 @@ export interface UseUsageComparisonsDataOptions {
 }
 
 interface LoadComparisonsOptions {
+  onLoaded?: (response: UsageOverviewComparisons) => void
   skipIfInFlight?: boolean
 }
 
@@ -46,6 +47,7 @@ export function useUsageComparisonsData(options: UseUsageComparisonsDataOptions 
       if (sequence === requestSequence.current) {
         loadedScope.current = { queryKey: queryKey!, viewerIdentity }
         setComparisons(nextComparisons)
+        options.onLoaded?.(nextComparisons)
       }
     } catch (nextError) {
       if (controller.signal.aborted || sequence !== requestSequence.current) return

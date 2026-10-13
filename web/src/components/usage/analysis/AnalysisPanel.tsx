@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FocusEvent, type MouseEvent } from 'react';
+import { ChartLifecycleProvider, type ChartRefreshSignal } from '../charts/chartLifecycle';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import { Interaction, Tooltip } from 'chart.js';
 import type { Chart, ChartData, ChartOptions, InteractionItem, InteractionModeFunction, Plugin, ScriptableContext, TooltipModel, TooltipPositionerFunction } from 'chart.js';
-import { Bar, Doughnut, Scatter } from 'react-chartjs-2';
+import { Bar, Doughnut, Scatter } from '../charts/UsageChart';
 import type { AnalysisCompositionItem, AnalysisCostSummary, AnalysisHeatmapCell, AnalysisLatencyDiagnostics, AnalysisModelEfficiencyItem, AnalysisModelUsagePayload, AnalysisResponse, AnalysisTokenUsageBucket } from '@/lib/types';
 import { calculateDisplayInputTokens, calculateDisplayOutputTokens, formatCompactNumber, formatDurationMs, formatUsd } from '@/utils/usage';
 import { buildUsageChartTooltipStyle, getUsageChartTheme, toUsageChartGradientFill as toGradientFill, USAGE_CHART_REQUESTS_LINE_COLOR, USAGE_CHART_COMPOSITION_COLORS as CHART_COLORS, USAGE_CHART_TOKEN_COLORS as TOKEN_COLORS, type UsageChartGradientColor, type UsageChartTheme } from '@/utils/usage/chartConfig';
@@ -29,6 +30,8 @@ interface AnalysisPanelProps {
   modelSpeedPreferenceScope?: string | null;
   modelSpeedQueryKey?: string;
   modelSpeedRefreshSignal?: ModelSpeedRefreshSignal;
+  chartRefreshSignal?: ChartRefreshSignal;
+  latencyRefreshSignal?: ChartRefreshSignal;
 }
 
 export type AnalysisCompositionDimension = 'api_key' | 'model' | 'auth_files' | 'ai_provider';
@@ -575,7 +578,6 @@ function buildTopModelsChartOptions({
   return {
     responsive: true,
     maintainAspectRatio: false,
-    animation: false,
     // 触摸拖动留给页面滚动；轻点产生的 click 才打开明细。
     events: ['mousemove', 'mouseout', 'click'],
     interaction: { mode: 'index', intersect: false },
@@ -1040,9 +1042,10 @@ function LatencyDiagnosticsCard({ diagnostics, loading, error, isDark, isMobile 
         showPricingHint={false}
         hint=""
       />
-      {loading ? (
+      {error && hasData && <div role="status">{error}</div>}
+      {loading && !diagnostics ? (
         <div className={styles.emptyState}>{t('common.loading')}</div>
-      ) : error ? (
+      ) : error && !hasData ? (
         <div className={styles.emptyState}>{error}</div>
       ) : unsupported ? (
         <div className={styles.emptyState}>{t('usage_stats.analysis_latency_recent_range_only')}</div>
@@ -1086,7 +1089,6 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
   const [activeTabId, setActiveTabId] = useState<CompositionTab['id']>(tabs[0]?.id ?? 'model');
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const items = activeTab?.items ?? EMPTY_COMPOSITION_ITEMS;
-  const activeContentKey = `${activeTab?.id ?? 'empty'}:${items.map((item) => item.key).join('|')}`;
   const highlight = useAnalysisHighlight(activeTab?.id ?? 'empty');
   const rankingItems = useMemo<AnalysisRankingItem[]>(() => items.map((item, index) => ({
     key: item.key, label: item.label, total: toNumber(item.total_tokens), share: toNumber(item.percent),
@@ -1101,8 +1103,13 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
   const chartOptions = useMemo(() => buildCompositionChartOptions(chartTheme, tooltipLabels), [chartTheme, tooltipLabels]);
   const chartLabels = useMemo(() => items.map((item) => ({ name: item.label, share: formatPercent(toNumber(item.percent)) })), [items]);
   const labelsPlugin = useMemo(() => createCompositionLabelsPlugin(chartLabels, chartTheme.textPrimary), [chartLabels, chartTheme.textPrimary]);
-  // 标签与主题变化时重建已安装的插件；悬浮只更新图表数据，不重建实例。
-  const chartKey = JSON.stringify([activeContentKey, chartLabels, chartTheme.textPrimary]);
+  // 已安装插件读取最新标签与主题，自动刷新不再靠 key 卸载整张环图。
+  const liveLabelsPlugin = useRef(labelsPlugin);
+  useLayoutEffect(() => { liveLabelsPlugin.current = labelsPlugin; }, [labelsPlugin]);
+  const stableLabelsPlugin = useMemo<Plugin<'doughnut'>>(() => ({
+    id: 'analysis-composition-labels',
+    afterDatasetsDraw: (...args) => liveLabelsPlugin.current.afterDatasetsDraw?.(...args),
+  }), []);
   const hasUnavailableCost = items.some((item) => item.cost_available === false);
   return (
     <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
@@ -1123,7 +1130,7 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
           <div className={styles.analysisChartSurface}>
             <div className={`${styles.pairedChartFrame} ${styles.donutCanvasBox}`} role="img"
               aria-label={`${activeTab.label}: ${items.map((item) => `${item.label} ${formatPercent(toNumber(item.percent))}`).join(', ')}`}>
-              <Doughnut key={chartKey} data={chartData} options={chartOptions} plugins={[compositionGeometryPlugin, labelsPlugin]} />
+              <Doughnut data={chartData} options={chartOptions} plugins={[compositionGeometryPlugin, stableLabelsPlugin]} />
             </div>
           </div>
           <AnalysisRankingList key={activeTab.id} items={rankingItems} label={t('usage_stats.analysis_composition_title')} windowMinutes={windowMinutes} highlight={highlight} />
@@ -1660,6 +1667,8 @@ export function AnalysisPanel({
   modelSpeedPreferenceScope = 'admin',
   modelSpeedQueryKey = '',
   modelSpeedRefreshSignal,
+  chartRefreshSignal,
+  latencyRefreshSignal,
 }: AnalysisPanelProps) {
   const { t } = useTranslation();
   const tokenRows = useMemo(() => buildTokenUsageRows(analysis?.token_usage ?? [], analysis?.granularity ?? 'hourly', analysis?.timezone), [analysis]);
@@ -1679,6 +1688,7 @@ export function AnalysisPanel({
   }, [apiComposition, modelComposition, authFilesComposition, aiProviderComposition, compositionDimensions, t]);
 
   return (
+    <ChartLifecycleProvider queryKey={modelSpeedQueryKey} source={analysis} refreshSignal={chartRefreshSignal}>
     <div className={styles.analysisPanel}>
       <TokenUsageChart rows={tokenRows} summary={analysis?.cost_summary} loading={loading} isDark={isDark} isMobile={isMobile} />
       <div className={styles.insightGrid}>
@@ -1694,12 +1704,15 @@ export function AnalysisPanel({
           isMobile={isMobile}
         />
       </div>
-      <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
+      <ChartLifecycleProvider queryKey={modelSpeedQueryKey} source={latencyDiagnostics} refreshSignal={latencyRefreshSignal}>
+        <LatencyDiagnosticsCard diagnostics={latencyDiagnostics} loading={latencyLoading} error={latencyError} isDark={isDark} isMobile={isMobile} />
+      </ChartLifecycleProvider>
       <div className={styles.insightGrid}>
         <AnalysisModelSpeedCard speed={analysis?.model_speed} granularity={analysis?.granularity ?? 'hourly'} loading={loading} isDark={isDark} isMobile={isMobile} timezone={analysis?.timezone} preferenceScope={modelSpeedPreferenceScope} queryKey={modelSpeedQueryKey} refreshSignal={modelSpeedRefreshSignal} />
         <ModelEfficiencyCard rows={analysis?.model_efficiency ?? []} loading={loading} isDark={isDark} isMobile={isMobile} />
       </div>
       <Heatmap cells={analysis?.heatmap?.cells ?? []} apiKeys={analysis?.heatmap?.api_keys ?? []} apiKeyLabels={analysis?.heatmap?.api_key_labels ?? {}} models={analysis?.heatmap?.models ?? []} loading={loading} isDark={isDark} />
     </div>
+    </ChartLifecycleProvider>
   );
 }

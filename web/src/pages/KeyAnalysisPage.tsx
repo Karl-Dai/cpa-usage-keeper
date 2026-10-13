@@ -1,3 +1,4 @@
+import { useChartRefresh } from '@/components/usage/charts/chartLifecycle';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyAnalysis, fetchKeyAnalysisLatency, isCostsBusy, isUsageRangeBoundsConflict } from '@/lib/api';
@@ -41,6 +42,9 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
   const [latencyLoading, setLatencyLoading] = useState(false);
   const [latencyError, setLatencyError] = useState('');
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+  const [chartRefresh, markChartLoaded] = useChartRefresh();
+  const [latencyRefresh, markLatencyLoaded] = useChartRefresh();
+  const loadedLatencyScopeRef = useRef<string | null>(null);
   const [modelSpeedRefresh, setModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
   const requestControllerRef = useRef<AbortController | null>(null);
   const loadedAnalysisScopeRef = useRef<{ rangeKey: string; apiKey?: AuthSessionAPIKeySummary } | null>(null);
@@ -90,7 +94,9 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     setAnalysisError('');
     setLatencyLoading(true);
     setLatencyError('');
-    setLatency(null);
+    const scope = JSON.stringify([rangeKey, apiKey?.id]);
+    const sameLatencyScope = loadedLatencyScopeRef.current === scope;
+    if (!sameLatencyScope) setLatency(null);
 
     // 主 Analysis 与 Latency 同时加载，但分别更新状态，避免一个慢请求阻塞另一块内容。
     const coreRequest = fetchKeyAnalysis(usageRangeQuery, controller.signal).then((response) => {
@@ -99,6 +105,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
       analysisTimeZoneRef.current = response.timezone;
       loadedAnalysisScopeRef.current = { rangeKey: rangeKey!, apiKey };
       setAnalysis(response);
+      if (replaySpeed) markChartLoaded(response);
       const speed = response.model_speed;
       if (replaySpeed && speed) setModelSpeedRefresh((previous) => ({ source: speed, revision: (previous?.revision ?? 0) + 1 }));
       setAnalysisLoading(false);
@@ -114,7 +121,9 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     });
     const latencyRequest = fetchKeyAnalysisLatency(usageRangeQuery, controller.signal).then((response) => {
       if (requestControllerRef.current !== controller) return;
+      loadedLatencyScopeRef.current = scope;
       setLatency(response);
+      if (replaySpeed) markLatencyLoaded(response);
       setLatencyLoading(false);
     }, (error: unknown) => {
       if (controller.signal.aborted || requestControllerRef.current !== controller) return;
@@ -130,7 +139,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     if (requestControllerRef.current === controller) {
       requestControllerRef.current = null;
     }
-  }, [apiKey, onAuthRequired, rangeKey, recoverRangeBoundsConflict, usageRangeQuery]);
+  }, [apiKey, onAuthRequired, rangeKey, recoverRangeBoundsConflict, usageRangeQuery, markChartLoaded, markLatencyLoaded]);
 
   useEffect(() => {
     void loadAnalysis();
@@ -158,7 +167,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
     ? t('key_analysis.costs_busy')
     : analysisError ? t('key_analysis.load_failed') : '';
   const displayLatencyError = latencyError ? t('key_analysis.latency_load_failed') : '';
-  const panelLoading = analysisLoading || (analysisError === 'COSTS_BUSY' && !currentAnalysis);
+  const panelLoading = (analysisLoading && !currentAnalysis) || (analysisError === 'COSTS_BUSY' && !currentAnalysis);
 
   return (
     <KeyViewerShell
@@ -182,7 +191,7 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
       <AnalysisPanel
         analysis={currentAnalysis}
         loading={panelLoading}
-        latencyDiagnostics={latency}
+        latencyDiagnostics={loadedLatencyScopeRef.current === JSON.stringify([rangeKey, apiKey?.id]) ? latency : null}
         latencyLoading={latencyLoading}
         latencyError={displayLatencyError}
         isDark={isDark}
@@ -191,6 +200,8 @@ export function KeyAnalysisPage({ apiKey, onNavigate, onAuthRequired }: KeyAnaly
         modelSpeedPreferenceScope={apiKey?.id ? `key-viewer:${apiKey.id}` : null}
         modelSpeedQueryKey={JSON.stringify([rangeKey, apiKey?.id ?? null])}
         modelSpeedRefreshSignal={modelSpeedRefresh}
+        chartRefreshSignal={chartRefresh}
+        latencyRefreshSignal={latencyRefresh}
       />
     </KeyViewerShell>
   );
