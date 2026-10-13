@@ -1,3 +1,4 @@
+import { ChartLifecycleProvider } from './charts/chartLifecycle';
 import { RealtimeModelSpeedCard } from './model-speed/RealtimeModelSpeedCard';
 import type { ModelSpeedRefreshSignal } from './model-speed/modelSpeedAnimation';
 import { RealtimeCacheChart, RealtimeDiagnostics, RealtimeWindowCards } from './RealtimeInsights';
@@ -6,7 +7,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
 import type { ChartData, ChartOptions, Plugin } from 'chart.js';
-import { Line } from 'react-chartjs-2';
+import { Line } from './charts/UsageChart';
 import { LatencyScatterChart } from './LatencyScatterChart';
 import type {
   OverviewRealtimeBlock,
@@ -603,6 +604,7 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
   const visibleDimension = dimensions.find((dimension) => dimension.key === activeDimension) ?? dimensions[0];
 
   return (
+    <ChartLifecycleProvider queryKey={modelSpeedQueryKey} source={data.model_speed} refreshSignal={modelSpeedRefreshSignal}>
     <div className={styles.overviewRealtimeSection}>
       <div className={styles.overviewRealtimeToolbar}>
         <div className={styles.overviewRealtimeHeading}>
@@ -701,5 +703,6 @@ export function OverviewRealtimePanel({ realtime, loading, error, window, onWind
         </>
       )}
     </div>
+    </ChartLifecycleProvider>
   );
 }
