@@ -324,15 +324,11 @@ describe('AnalysisPanel Top Models card', () => {
       expect(tooltip.textContent).not.toContain('model-20:');
       expect(tooltip.textContent).toContain('usage_stats.total_tokens: 2.00K');
 
-      vi.useFakeTimers();
+      expect(tooltip.querySelector('button')).toBeNull();
+      expect((tooltip as HTMLElement).style.pointerEvents).toBe('none');
       act(() => tooltip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' })));
       act(() => chart!.tooltip!.setActiveElements([], { x: 0, y: 0 }));
-      act(() => vi.advanceTimersByTime(300));
-      expect(document.querySelector('[data-top-models-tooltip]')).not.toBeNull();
-      act(() => tooltip.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body })));
-      act(() => vi.advanceTimersByTime(300));
       expect(document.querySelector('[data-top-models-tooltip]')).toBeNull();
-      vi.useRealTimers();
       show(105);
 
       act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));

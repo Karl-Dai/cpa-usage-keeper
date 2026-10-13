@@ -984,7 +984,7 @@ function TopModelsCard({ modelUsage, composition, granularity, timezone, loading
   const view = useMemo(() => buildTopModelsViewModel(modelUsage, granularity, timezone, composition), [composition, granularity, modelUsage, timezone]);
   const activeHighlightedModel = view.series.some((item) => item.key === highlight.active) ? highlight.active : null;
   const chartData = useMemo(() => buildTopModelsChartData(view, activeHighlightedModel), [activeHighlightedModel, view]);
-  const { external, onPointerDown, tooltip } = useTopModelsTooltip(chartData, !loading, isMobile);
+  const { external, onPointerDown, onPointerMove, tooltip } = useTopModelsTooltip(chartData, !loading, isMobile, chartTheme);
   const chartOptions = useMemo(() => buildTopModelsChartOptions({
     chartTheme, isMobile, bucketTotals: view.bucketTotals, totalLabel: t('usage_stats.total_tokens'), external,
   }), [chartTheme, external, isMobile, t, view.bucketTotals]);
@@ -999,7 +999,7 @@ function TopModelsCard({ modelUsage, composition, granularity, timezone, loading
       {loading ? <div className={styles.emptyState}>{t('common.loading')}</div> : view.series.length === 0 ? <div className={styles.emptyState}>{t('usage_stats.no_data')}</div> : (
         <>
           <div className={styles.analysisChartSurface}>
-            <div className={styles.pairedChartFrame} role="img" onPointerDown={onPointerDown} aria-label={`${t('usage_stats.analysis_top_models_chart_aria')}: ${formatCompactNumber(view.rangeTotal)}`}>
+            <div className={styles.pairedChartFrame} role="img" onPointerDown={onPointerDown} onPointerMove={onPointerMove} aria-label={`${t('usage_stats.analysis_top_models_chart_aria')}: ${formatCompactNumber(view.rangeTotal)}`}>
               <Bar data={chartData} options={chartOptions} />
             </div>
           </div>
