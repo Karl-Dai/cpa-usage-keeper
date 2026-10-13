@@ -1,9 +1,8 @@
-import { ChartLifecycleProvider, useChartRefresh } from '@/components/usage/charts/chartLifecycle';
+import { ChartLifecycleProvider, useChartRefresh, type ChartRefreshSignal } from '@/components/usage/charts/chartLifecycle';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchKeyOverview, fetchKeyOverviewRealtime, isCostsBusy, isUsageRangeBoundsConflict } from '@/lib/api';
-import type { ModelSpeedRefreshSignal } from '@/components/usage/model-speed/modelSpeedAnimation';
 import type { AuthSessionAPIKeySummary, OverviewRealtimeBlock, OverviewRealtimeWindow, UsageCustomRange, UsageOverviewResponse, UsageTimeRange } from '@/lib/types';
 import { KeyViewerShell } from '@/features/key-viewer/KeyViewerShell';
 import type { KeyViewerPath } from '@/features/key-viewer/navigation';
@@ -60,7 +59,6 @@ type KeyOverviewAutoRefreshOptions = {
 
 type KeyOverviewLoadOptions = {
   skipIfInFlight?: boolean;
-  replayModelSpeed?: boolean;
   replayCharts?: boolean;
 };
 
@@ -159,7 +157,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [overviewChartRefresh, markOverviewLoaded] = useChartRefresh();
   const [comparisonChartRefresh, markComparisonsLoaded] = useChartRefresh();
-  const [modelSpeedRefresh, setModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
+  const [realtimeChartRefresh, setRealtimeChartRefresh] = useState<ChartRefreshSignal>();
   const overviewRequestControllerRef = useRef<AbortController | null>(null);
   const realtimeRequestControllerRef = useRef<AbortController | null>(null);
   const loadedUsageAPIKeyRef = useRef<AuthSessionAPIKeySummary | undefined>(undefined);
@@ -288,8 +286,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
       if (realtimeRequestControllerRef.current !== controller) return;
       loadedRealtimeAPIKeyRef.current = apiKey;
       setRealtime(nextRealtime);
-      const speed = nextRealtime.model_speed;
-      if (options.replayModelSpeed && speed) setModelSpeedRefresh((previous) => ({ source: speed, revision: (previous?.revision ?? 0) + 1 }));
+      if (options.replayCharts) setRealtimeChartRefresh((previous) => ({ source: nextRealtime, revision: (previous?.revision ?? 0) + 1 }));
     } catch (nextError) {
       if (controller.signal.aborted) return;
       if (nextError instanceof ApiError && nextError.status === 401) {
@@ -380,11 +377,11 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
     if (refreshDisabled) return;
     setManualRefreshLoading(true);
     try {
-      await refreshKeyOverview({ replayModelSpeed: page === 'realtime', replayCharts: true });
+      await refreshKeyOverview({ replayCharts: true });
     } finally {
       setManualRefreshLoading(false);
     }
-  }, [refreshDisabled, refreshKeyOverview, page]);
+  }, [refreshDisabled, refreshKeyOverview]);
 
   const displayError = error === 'COSTS_BUSY'
     ? t('key_overview.costs_busy')
@@ -449,7 +446,7 @@ export function KeyOverviewPage({ page = 'overview', apiKey, onNavigate, onAuthR
         realtime={visibleRealtime ?? undefined}
         modelSpeedPreferenceScope={apiKey?.id ? `key-viewer:${apiKey.id}` : null}
         modelSpeedQueryKey={JSON.stringify([realtimeWindow, apiKey?.id ?? null])}
-        modelSpeedRefreshSignal={modelSpeedRefresh}
+        chartRefreshSignal={realtimeChartRefresh}
         loading={realtimeLoading || (realtimeError === 'COSTS_BUSY' && !visibleRealtime)}
         error={displayRealtimeError}
         window={realtimeWindow}

@@ -1,4 +1,4 @@
-import { ChartLifecycleProvider, useChartRefresh } from '@/components/usage/charts/chartLifecycle';
+import { ChartLifecycleProvider, useChartRefresh, type ChartRefreshSignal } from '@/components/usage/charts/chartLifecycle';
 import { CredentialEditModal } from '@/components/usage/credentials/CredentialEditModal';
 import { UsageComparisonCharts } from '@/components/usage/UsageComparisonCharts';
 import type { ModelSpeedRefreshSignal } from '@/components/usage/model-speed/modelSpeedAnimation';
@@ -930,7 +930,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [latencyRefresh, markLatencyLoaded] = useChartRefresh();
   const loadedLatencyScopeRef = useRef<string | null>(null);
   const [analysisModelSpeedRefresh, setAnalysisModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
-  const [realtimeModelSpeedRefresh, setRealtimeModelSpeedRefresh] = useState<ModelSpeedRefreshSignal>();
+  const [realtimeChartRefresh, setRealtimeChartRefresh] = useState<ChartRefreshSignal>();
   const [pageVisible, setPageVisible] = useState(isUsagePageVisible);
   const showTopNotice = useCallback((kind: TopNoticeKind, message: string) => {
     if (topNoticeTimerRef.current !== null) {
@@ -1729,8 +1729,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (!apiKeyFilterReady && shouldShowApiKeyFilter(activeTab)) return;
     if (activeTab === 'realtime') {
       await loadRealtime((response) => {
-        const speed = response.model_speed;
-        if (speed) setRealtimeModelSpeedRefresh((previous) => ({ source: speed, revision: (previous?.revision ?? 0) + 1 }));
+        setRealtimeChartRefresh((previous) => ({ source: response, revision: (previous?.revision ?? 0) + 1 }));
       });
       return;
     }
@@ -2234,7 +2233,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 realtime={currentRealtime ?? undefined}
                 modelSpeedPreferenceScope={isEmbeddedInCPAMC ? 'admin:embed' : 'admin'}
                 modelSpeedQueryKey={JSON.stringify([realtimeWindow, requestApiKeyId])}
-                modelSpeedRefreshSignal={realtimeModelSpeedRefresh}
+                chartRefreshSignal={realtimeChartRefresh}
                 loading={realtimeLoading}
                 error={displayRealtimeError}
                 window={realtimeWindow}
