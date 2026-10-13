@@ -96,6 +96,10 @@ export function useTopModelsTooltip(source: object, enabled: boolean, isMobile: 
       closeOnLeave();
       return;
     }
+    if (!tooltip.body?.length) {
+      setContent(null);
+      return;
+    }
     chartRef.current = chart;
     canvasRef.current = chart.canvas;
     const title = tooltip.title.join('\n');
