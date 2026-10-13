@@ -1,14 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import '@/lib/chartjs';
-import { Line } from 'react-chartjs-2';
+import { Line } from './charts/UsageChart';
 import type { Chart as ChartJS, ChartData, ChartOptions, TooltipModel } from 'chart.js';
 import type { UsageComparisonItem, UsageOverviewComparisons } from '@/lib/types';
 import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { PortalTooltip, usePortalTooltip } from '@/components/ui/PortalTooltip';
 import { formatCompactNumber, formatUsd } from '@/utils/usage';
-import { getUsageChartTheme } from '@/utils/usage/chartConfig';
+import { buildUsageChartTooltipStyle, getUsageChartTheme } from '@/utils/usage/chartConfig';
 import { buildComparisonView, formatComparisonBucket, type ComparisonRow } from './usageComparisonData';
 import styles from './UsageComparisonCharts.module.scss';
 import usageStyles from '@/pages/UsagePage.module.scss';
@@ -104,7 +104,7 @@ function ComparisonArea({ dimension, comparisons, loading, isDark, isMobile }: C
   }), [labels, buckets, view.rows, hidden, theme.tooltipBg]);
 
   const options = useMemo<ChartOptions<'line'>>(() => ({
-    responsive: true, maintainAspectRatio: false, animation: false,
+    responsive: true, maintainAspectRatio: false,
     interaction: {mode: 'index', intersect: false},
     layout: {padding: {top: 12, right: 4}},
     plugins: {
@@ -183,7 +183,7 @@ function ComparisonArea({ dimension, comparisons, loading, isDark, isMobile }: C
         aria-label={`${t('usage_stats.comparison_token_trend')} · ${t(`usage_stats.overview_realtime_dimension_${dimension}`)} · ${t('usage_stats.comparison_chart_keyboard')}`}
         tabIndex={0} onFocus={() => selectBucket(buckets.length - 1)} onKeyDown={onChartKeyDown}
         onBlur={() => { if (tooltipRef.current) tooltipRef.current.hidden = true; }} /> : <div className={styles.empty}>{empty}</div>}
-      <div ref={tooltipRef} className={styles.tooltip} role="tooltip" hidden />
+      <div ref={tooltipRef} className={styles.tooltip} role="tooltip" hidden style={{ backgroundColor: theme.tooltipBg, color: theme.tooltipBody, borderColor: theme.tooltipBorder, padding: buildUsageChartTooltipStyle(theme).padding }} />
     </div>
     <div className={styles.legend}>
       {view.rows.map((row, index) => <button type="button" key={row.key} data-series-key={row.key} aria-pressed={!hidden.has(row.key)}
