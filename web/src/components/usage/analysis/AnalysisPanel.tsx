@@ -1110,6 +1110,26 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
     id: 'analysis-composition-labels',
     afterDatasetsDraw: (...args) => liveLabelsPlugin.current.afterDatasetsDraw?.(...args),
   }), []);
+  const liveDimension = useRef(activeTab?.id);
+  useLayoutEffect(() => { liveDimension.current = activeTab?.id; }, [activeTab?.id]);
+  const interactionState = useRef({ dimension: activeTab?.id, ignoreReplay: false });
+  const interactionPlugin = useMemo<Plugin<'doughnut'>>(() => {
+    return {
+      id: 'analysis-composition-interaction',
+      beforeUpdate: chart => {
+        if (interactionState.current.dimension === liveDimension.current) return;
+        interactionState.current.dimension = liveDimension.current;
+        interactionState.current.ignoreReplay = true;
+        chart.setActiveElements([]);
+        chart.tooltip?.setActiveElements([], { x: 0, y: 0 });
+      },
+      // 新维度必须等待真实交互，不能重放旧维度留下的指针位置。
+      beforeEvent: (_chart, args) => {
+        if (args.replay && interactionState.current.ignoreReplay) return false;
+        if (!args.replay) interactionState.current.ignoreReplay = false;
+      },
+    };
+  }, []);
   const hasUnavailableCost = items.some((item) => item.cost_available === false);
   return (
     <section className={`${styles.analysisCard} ${styles.pairedChartCard} keeper-card-surface`}>
@@ -1130,7 +1150,7 @@ function CompositionPanel({ tabs, loading, isDark, windowMinutes }: { tabs: Comp
           <div className={styles.analysisChartSurface}>
             <div className={`${styles.pairedChartFrame} ${styles.donutCanvasBox}`} role="img"
               aria-label={`${activeTab.label}: ${items.map((item) => `${item.label} ${formatPercent(toNumber(item.percent))}`).join(', ')}`}>
-              <Doughnut data={chartData} options={chartOptions} plugins={[compositionGeometryPlugin, stableLabelsPlugin]} />
+              <Doughnut data={chartData} options={chartOptions} plugins={[compositionGeometryPlugin, stableLabelsPlugin, interactionPlugin]} />
             </div>
           </div>
           <AnalysisRankingList key={activeTab.id} items={rankingItems} label={t('usage_stats.analysis_composition_title')} windowMinutes={windowMinutes} highlight={highlight} />
