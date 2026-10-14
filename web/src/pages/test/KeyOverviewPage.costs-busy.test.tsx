@@ -24,10 +24,10 @@ vi.mock('@/components/usage/UsageComparisonCharts', () => ({ UsageComparisonChar
 vi.mock('@/components/usage', () => ({
   StatCards: ({ usage, loading }: { usage: UsageOverviewPayload | null; loading: boolean }) =>
     <div data-testid="overview-cost">{loading ? 'loading' : usage?.summary?.total_cost ?? 0}</div>,
-  OverviewRealtimePanel: ({ realtime, loading, error, modelSpeedRefreshSignal }: { realtime?: OverviewRealtimeBlock; loading: boolean; error: string; modelSpeedRefreshSignal?: { source: object; revision: number } }) => <>
+  OverviewRealtimePanel: ({ realtime, loading, error, chartRefreshSignal }: { realtime?: OverviewRealtimeBlock; loading: boolean; error: string; chartRefreshSignal?: { source: object; revision: number } }) => <>
     <div data-testid="realtime-cost">{loading && !realtime ? 'loading' : realtime?.current_usage.models[0]?.cost ?? 'missing'}</div>
     <div>{error}</div>
-    <div data-testid="model-speed-replays">{modelSpeedRefreshSignal?.revision ?? 0}</div>
+    <div data-testid="model-speed-replays">{chartRefreshSignal?.revision ?? 0}</div>
   </>,
   RecentActivityPanel: () => <div />,
   TimeRangeControl: ({ onChange }: { onChange: (range: '8h') => void }) =>
@@ -70,8 +70,8 @@ describe('KeyOverviewPage cost-read busy responses', () => {
     localStorage.clear();
   });
 
-  it('replays a successful manual speed response once and ignores a handled failure', async () => {
-    const response = { ...realtime(2.5), model_speed: { available: true, series: [] } };
+  it.each([true, false])('replays successful manual responses with model speed present=%s and ignores failures', async (withSpeed) => {
+    const response = { ...realtime(2.5), model_speed: withSpeed ? { available: true, series: [] } : undefined };
     apiMocks.fetchKeyOverviewRealtime.mockResolvedValueOnce(response).mockResolvedValueOnce(response).mockRejectedValueOnce(new Error('failed'));
     await act(async () => root.render(<KeyOverviewPage page="realtime" onNavigate={vi.fn()} />));
     const revision = () => container.querySelector('[data-testid="model-speed-replays"]')!.textContent;

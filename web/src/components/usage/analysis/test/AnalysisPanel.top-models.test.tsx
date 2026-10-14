@@ -316,7 +316,7 @@ describe('AnalysisPanel Top Models card', () => {
         chart!.draw();
       });
       show(100);
-      const tooltip = document.querySelector('[data-top-models-tooltip]')!;
+      let tooltip = document.querySelector('[data-top-models-tooltip]')!;
       expect(tooltip).not.toBeNull();
       expect(tooltip.querySelectorAll('li')).toHaveLength(20);
       expect(tooltip.textContent).toContain('8/1');
@@ -324,15 +324,20 @@ describe('AnalysisPanel Top Models card', () => {
       expect(tooltip.textContent).not.toContain('model-20:');
       expect(tooltip.textContent).toContain('usage_stats.total_tokens: 2.00K');
 
-      vi.useFakeTimers();
+      // Chart.js can keep opacity=1 after its filter removes every zero-value item.
+      act(() => {
+        chart!.tooltip!.setActiveElements([{ datasetIndex: 20, index: 0 }], { x: 102, y: 100 });
+        chart!.draw();
+      });
+      expect(document.querySelector('[data-top-models-tooltip]')).toBeNull();
+      show(103);
+      tooltip = document.querySelector('[data-top-models-tooltip]')!;
+      expect(tooltip).not.toBeNull();
+      expect(tooltip.querySelector('button')).toBeNull();
+      expect((tooltip as HTMLElement).style.pointerEvents).toBe('none');
       act(() => tooltip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' })));
       act(() => chart!.tooltip!.setActiveElements([], { x: 0, y: 0 }));
-      act(() => vi.advanceTimersByTime(300));
-      expect(document.querySelector('[data-top-models-tooltip]')).not.toBeNull();
-      act(() => tooltip.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body })));
-      act(() => vi.advanceTimersByTime(300));
       expect(document.querySelector('[data-top-models-tooltip]')).toBeNull();
-      vi.useRealTimers();
       show(105);
 
       act(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));

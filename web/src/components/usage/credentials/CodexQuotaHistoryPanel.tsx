@@ -1,7 +1,8 @@
+import { ChartLifecycleProvider, useChartRefresh } from '../charts/chartLifecycle'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CategoryScaleOptions, ChartData, ChartOptions } from 'chart.js'
-import { Chart } from 'react-chartjs-2'
+import { Chart } from '../charts/UsageChart'
 import '@/lib/chartjs'
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaRequestIcon from '@/assets/icons/quota-request.svg'
@@ -72,6 +73,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
   const [history, setHistory] = useState<CodexQuotaHistoryResponse | null>(null)
   const [selection, setSelection] = useState<{ windowRole: string | null; cycleId: number | null }>({ windowRole: null, cycleId: null })
   const [loading, setLoading] = useState(false)
+  const [chartRefresh, markChartLoaded] = useChartRefresh()
   const [error, setError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<CodexQuotaHistoryCycle | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -112,6 +114,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
           : (cycles.find((cycle) => cycle.status === 'current') ?? cycles[0])?.id ?? null,
       }))
       setHistory(response)
+      markChartLoaded(response)
     } catch (loadError) {
       if (controller.signal.aborted) return
       if (loadError instanceof ApiError && loadError.status === 401) {
@@ -127,7 +130,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
         setLoading(false)
       }
     }
-  }, [authIndex, onAuthRequired, t])
+  }, [authIndex, onAuthRequired, t, markChartLoaded])
 
   useEffect(() => {
     lastRequestOptionsRef.current = {}
@@ -221,6 +224,8 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
         <div className={styles.emptyState}>{t('common.loading')}</div>
       ) : history ? (
         <>
+          <ChartLifecycleProvider queryKey={JSON.stringify([authIndex, history.selected_window?.window_role, selectedCycle?.id])}
+            source={selectedCycle} refreshSignal={chartRefresh?.source === history && selectedCycle ? { source: selectedCycle, revision: chartRefresh.revision } : undefined}>
           <CycleEfficiencyChart
             cycle={selectedCycle}
             window={history.selected_window}
@@ -228,6 +233,7 @@ function QuotaHistoryPanel({ authIndex, onAuthRequired }: CodexQuotaHistoryPanel
             locale={locale}
             chartRef={chartRef}
           />
+          </ChartLifecycleProvider>
           <CyclesList key={history.selected_window?.window_role ?? 'empty'}
             cycles={history.cycles} locale={locale} summaries={cycleSummaries}
             selectedCycleId={selectedCycle?.id ?? null}
@@ -869,7 +875,6 @@ function buildEfficiencyChart(
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },

@@ -123,6 +123,10 @@ describe('Analysis model speed card', () => {
     expect(chart.reset).toHaveBeenCalledTimes(2);
     await render(refreshed, 'hourly', { queryKey: 'changed-range' });
     update();
+    update(); // resize/theme while the new query is pending
+    expect(chart.reset).toHaveBeenCalledTimes(2);
+    await render(structuredClone(refreshed), 'hourly', { queryKey: 'changed-range' });
+    update();
     expect(chart.reset).toHaveBeenCalledTimes(3);
   });
 

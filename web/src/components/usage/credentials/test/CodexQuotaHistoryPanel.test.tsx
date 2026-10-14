@@ -2,7 +2,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { BasicPlatform, Chart as ChartJS, type ChartData, type ChartOptions } from 'chart.js'
+import { BasicPlatform, Chart as ChartJS, type ChartData, type ChartOptions, type Plugin } from 'chart.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import type { CodexQuotaHistoryResponse } from '@/lib/types'
@@ -17,6 +17,7 @@ type QuotaEfficiencyChartOptions = ChartOptions<QuotaEfficiencyChartType>
 
 let latestChartData: QuotaEfficiencyChartData | null = null
 let latestChartOptions: QuotaEfficiencyChartOptions | null = null
+let latestChartPlugins: Plugin<QuotaEfficiencyChartType>[] = []
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
@@ -28,9 +29,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
 })
 
 vi.mock('react-chartjs-2', () => ({
-  Chart: (props: { data: QuotaEfficiencyChartData; options: QuotaEfficiencyChartOptions }) => {
+  Chart: (props: { data: QuotaEfficiencyChartData; options: QuotaEfficiencyChartOptions; plugins?: Plugin<QuotaEfficiencyChartType>[] }) => {
     latestChartData = props.data
     latestChartOptions = props.options
+    latestChartPlugins = props.plugins ?? []
     return <div data-testid="quota-efficiency-chart" />
   },
 }))
@@ -147,6 +149,7 @@ describe('CodexQuotaHistoryPanel', () => {
     useThemeStore.setState({ theme: 'light', resolvedTheme: 'light' })
     latestChartData = null
     latestChartOptions = null
+    latestChartPlugins = []
     fetchCodexQuotaHistory.mockReset()
     deleteCodexQuotaHistoryCycle.mockReset()
     deleteCodexQuotaHistoryCycle.mockResolvedValue(undefined)
@@ -172,6 +175,43 @@ describe('CodexQuotaHistoryPanel', () => {
 
   const windowButton = (role: 'primary' | 'secondary') =>
     container.querySelectorAll<HTMLButtonElement>('[aria-label="usage_stats.credentials_quota_history_window_selector"] button')[role === 'primary' ? 0 : 1]!
+
+  it('animates the selected cycle and successful refresh without replaying pending or failed requests', async () => {
+    const initial = cloneResponse()
+    initial.cycles[1].transitions = [completedTransition()]
+    fetchCodexQuotaHistory.mockResolvedValueOnce(initial)
+    await renderPanel()
+    const reset = vi.fn()
+    const chart = { stop: vi.fn(), reset } as unknown as ChartJS<QuotaEfficiencyChartType>
+    const update = () => {
+      const lifecycle = latestChartPlugins.find(plugin => plugin.id === 'keeperChartLifecycle')
+      expect(lifecycle?.beforeDatasetsUpdate).toBeTypeOf('function')
+      lifecycle!.beforeDatasetsUpdate!(chart, { mode: 'default', cancelable: true }, {})
+    }
+    update()
+    expect(reset).toHaveBeenCalledTimes(1)
+    await selectCycle(1)
+    update()
+    expect(reset).toHaveBeenCalledTimes(2)
+    expect(fetchCodexQuotaHistory).toHaveBeenCalledTimes(1)
+
+    let reject!: (error: Error) => void
+    fetchCodexQuotaHistory.mockReturnValueOnce(new Promise((_, fail) => { reject = fail }))
+    await act(async () => windowButton('primary').click())
+    update()
+    expect(reset).toHaveBeenCalledTimes(2)
+    await act(async () => reject(new Error('refresh failed')))
+    update()
+    expect(reset).toHaveBeenCalledTimes(2)
+
+    fetchCodexQuotaHistory.mockResolvedValueOnce(structuredClone(initial))
+    await act(async () => windowButton('primary').click())
+    update()
+    expect(reset).toHaveBeenCalledTimes(3)
+    expect(container.querySelector('[data-codex-quota-chart-cycle-id="1"]')).not.toBeNull()
+    update()
+    expect(reset).toHaveBeenCalledTimes(3)
+  })
 
   it('keeps every cycle summary visible while all percentage details are initially unmounted', async () => {
     await renderPanel()
