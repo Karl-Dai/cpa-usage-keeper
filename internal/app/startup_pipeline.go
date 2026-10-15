@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/api"
+	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/poller"
 	"cpa-usage-keeper/internal/repository"
 	"github.com/sirupsen/logrus"
@@ -64,6 +65,15 @@ func (a *App) Initialize(ctx context.Context) error {
 		}
 	case repository.PricingInitKindLegacy:
 		if !state.DataComplete {
+			// 只对尚未完成的旧库升级做有界诊断，不能把离线启动变成新的强制联网依赖。
+			client := cpa.NewClient(a.Config.CPABaseURL, a.Config.CPAManagementKey, a.Config.RequestTimeout, a.Config.TLSSkipVerify)
+			verified, err := client.CheckUpgradeCompatibility(ctx)
+			if err != nil {
+				return fmt.Errorf("check CPA compatibility before legacy migration: %w", err)
+			}
+			if !verified {
+				logrus.Warn("CPA compatibility could not be verified before the database upgrade; CPA 8.0.12 or newer is required, verify CPA_BASE_URL and CPA availability")
+			}
 			baseline, err := repository.MigrateLegacyPricingEvents(ctx, db, reader, a.Config.BackupDir, time.Now())
 			if err != nil {
 				return fmt.Errorf("migrate legacy pricing events: %w", err)
