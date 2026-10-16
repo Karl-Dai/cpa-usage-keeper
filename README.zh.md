@@ -418,6 +418,12 @@ notepad .env
 
 启动前请设置 `CPA_BASE_URL`、`CPA_MANAGEMENT_KEY` 和私有的 `LOGIN_PASSWORD`。认证默认启用；只有隔离部署才显式设置 `AUTH_ENABLED=false`。
 
+### 健康检查
+
+`GET /healthz` 是存活检查：只要 Keeper 仍可提供 HTTP，迁移期间或启动失败后均返回 `200`。部署就绪检查应使用 `GET /readyz`：打开数据库、迁移及失败阶段返回 `503`，完整业务就绪后才返回 `200`。两条路径都带上 `APP_BASE_PATH`，例如 `/cpa/readyz`；就绪响应禁止缓存。
+
+Docker 镜像检查 `/readyz`。长时间迁移可能让容器显示 `unhealthy`，Docker 本身不会因此重启容器。在编排平台上，readiness 使用 `/readyz`，liveness 使用 `/healthz`。不要因 readiness 失败重启进程，也不要为数据库迁移设置过短的 startup probe 期限。启动失败时状态页仍可访问；查看日志、处理原因后，重启 Keeper 以重试。
+
 ## 配置
 
 复制配置模板：

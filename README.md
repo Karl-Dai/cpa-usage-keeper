@@ -418,6 +418,12 @@ notepad .env
 
 Set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD` before starting. Authentication is enabled by default; set `AUTH_ENABLED=false` explicitly only for an isolated deployment.
 
+### Health Checks
+
+`GET /healthz` is a liveness check: it returns `200` while Keeper can serve HTTP, including during migration or after startup fails. Use `GET /readyz` for deployment readiness: it returns `503` while opening, migrating, or failed, and `200` only after the business service is ready. Both routes use `APP_BASE_PATH`, for example `/cpa/readyz`; readiness responses are not cached.
+
+The Docker image checks `/readyz`. A long migration can mark the container `unhealthy`; Docker itself does not restart a container because of that health status. In an orchestrator, use `/readyz` for readiness and `/healthz` for liveness. Do not restart on failed readiness or impose a short startup-probe deadline on database migrations. A failed startup keeps its status page available; inspect the logs, correct the cause, and restart Keeper to retry.
+
 ## Configuration
 
 Copy the example config:
