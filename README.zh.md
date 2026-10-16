@@ -424,10 +424,12 @@ notepad .env
 
 首次从 V1 升级到 V2 前，先停止 Keeper，独立快照整个 `WORK_DIR`，包括 `app.db` 和可能存在的 SQLite `-wal`/`-shm` 文件。快照应放在 `WORK_DIR/backups` 之外，并保留原 V1 程序或镜像及配置。迁移自动创建的 M1 备份使用日常备份目录，仍受日常备份保留策略清理，不能当作永久回滚快照。
 
-将 `keeper_data_dir` 设为挂载到容器 `/data` 的实际宿主机目录：Keeper 独立部署模板使用 `./data`，CPA + Keeper 联合部署模板使用 `./keeper`。请按部署方式修改下面的值，并选择尚不存在的快照目录。命令使用 `&&` 串联，任何一步失败都不会继续升级：
+备份源应取自现有部署配置，不使用模板默认值。先核对实际生效的 `WORK_DIR` 及覆盖该目录的容器挂载；`docker compose config` 可查看解析后的 Compose 配置，`docker inspect` 可查看现有容器的实际挂载。例如 `WORK_DIR=/store/keeper`，挂载为 `/srv/apps:/store` 时，宿主机数据目录就是 `/srv/apps/keeper`。二进制或 Homebrew 部署直接使用解析后的 `WORK_DIR`。
+
+执行下面的 bind mount 示例前，将 shell 变量 `keeper_data_dir` 设为该实际宿主机目录；示例不提供默认值。命名卷应使用卷快照或导出方式，不适用这里的宿主机目录 `cp` 命令。选择尚不存在的快照目录；命令使用 `&&` 串联，任何一步失败都不会继续升级：
 
 ```bash
-keeper_data_dir=./data # CPA + Keeper 联合部署请改为 ./keeper
+: "${keeper_data_dir:?Set keeper_data_dir from the effective WORK_DIR and container mounts}" &&
 test -f "$keeper_data_dir/app.db" &&
 test ! -e ./keeper-v1-snapshot &&
 docker compose stop cpa-usage-keeper &&
@@ -462,10 +464,11 @@ Keeper 就绪后会在后台检查一次 CPA。只有明确识别为低于 v8.0.
 
    Windows 使用 `.\pricing-restore.exe`，Homebrew 使用 `pricing-restore`。工具验证已记录的 SHA-256，复制 M1 快照，再按原始 ID 补回备份后接收的 inbox 行并重置为待处理；全部验证通过后才发布新库，两个输入保持原样。带非空 WAL/journal 的备份会被拒绝，应使用原始独立 M1 文件。较早未记录指纹的未完成状态，仍须原记录路径可读，才能与显式副本比对；原身份依据丢失时工具会拒绝猜测。
 
-Docker 恢复时，保持原服务停止。将 `keeper_data_dir` 设为前述实际数据目录（独立部署为 `./data`，联合部署为 `./keeper`）。下面只读挂载该目录，并将结果写入单独的恢复目录。将镜像 tag 换成升级时使用的 V2 构建，将示例 M1 路径换成记录的日期和文件名：
+Docker 恢复时，保持原服务停止，使用前述根据部署配置确定的实际 `keeper_data_dir`。下面的 bind mount 示例只读挂载该目录，并将结果写入单独的恢复目录；此处 `/data` 是临时恢复容器的挂载目标，并不要求原部署使用相同路径。将镜像 tag 换成升级时使用的 V2 构建，将示例 M1 路径换成记录的日期和文件名：
 
 ```bash
-mkdir -p ./recovery
+: "${keeper_data_dir:?Set keeper_data_dir from the effective WORK_DIR and container mounts}" &&
+mkdir -p ./recovery &&
 docker run --rm --entrypoint /app/pricing-restore \
   --mount type=bind,src="$(cd -- "$keeper_data_dir" && pwd)",dst=/data,readonly \
   --mount type=bind,src="$(pwd)/recovery",dst=/restore \
