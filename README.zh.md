@@ -433,7 +433,7 @@ docker compose pull cpa-usage-keeper
 docker compose up -d --no-deps cpa-usage-keeper
 ```
 
-旧库迁移尚未完成时，Keeper 会在业务数据迁移前检查 CPA。明确识别为低于 CPA 8.0.12 的正式版本会阻止升级，并在日志中给出处理提示。未知/dev 版本或 CPA 暂时不可达只会警告；这项检查不保证全部 CPA 功能可用。新建或迁移已完成的数据库不会因此新增启动联网依赖。
+Keeper 就绪后会在后台检查一次 CPA。只有明确识别为低于 v8.0.12 的正式版本时，才在服务日志中提示升级；版本符合要求、版本未知或 CPA 不可达时不输出版本警告。检查不会阻止启动、本地历史访问或数据接收；远程功能仍取决于 CPA 接口的实际兼容性。
 
 启动失败时，查看日志及 `/api/v1/startup/status`（配置了 `APP_BASE_PATH` 时加上此前缀）。处理原因后重启即可续跑。搬迁 `WORK_DIR` 时保留 `backups/YYYY-MM-DD/database_TIMESTAMP.db` 目录结构：原 M1 路径缺失且已记录 SHA-256 时，Keeper 可在新 `WORK_DIR/backups` 下验证同一日期和精确文件名后续跑。产品没有 `BACKUP_DIR` 环境变量。
 

@@ -10,20 +10,20 @@ import (
 	"time"
 )
 
-const upgradeCompatibilityTimeout = 3 * time.Second
+const versionCheckTimeout = 3 * time.Second
 
 var cpaReleaseVersion = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
-// CheckUpgradeCompatibility 只为未完成的旧库升级诊断最低 CPA 版本，不授予网络可用性保证。
-// 未知/dev 版本和暂时无法连接返回未验证；只有正式版本明确低于合同才阻止破坏性迁移。
-func (c *Client) CheckUpgradeCompatibility(ctx context.Context) (bool, error) {
+// CheckMinimumVersion 为后台提示读取最低 CPA 版本，不决定 Keeper 是否启动。
+// 未知/dev 版本和暂时无法连接返回未验证；仅明确低于要求的正式版本返回升级提示。
+func (c *Client) CheckMinimumVersion(ctx context.Context) (bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if c == nil || c.baseURL == "" || c.managementKey == "" {
 		return false, nil
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, upgradeCompatibilityTimeout)
+	probeCtx, cancel := context.WithTimeout(ctx, versionCheckTimeout)
 	defer cancel()
 	// CPA 8.0.12 保留的轻量只读 debug 接口同样携带版本头，无需枚举凭证。
 	// 只发一次请求；不追随重定向，也不读取或输出响应正文。
@@ -62,7 +62,7 @@ func (c *Client) CheckUpgradeCompatibility(ctx context.Context) (bool, error) {
 		numbers[i] = value
 	}
 	if numbers[0] < 8 || numbers[0] == 8 && numbers[1] == 0 && numbers[2] < 12 {
-		return false, fmt.Errorf("CPA %d.%d.%d does not meet the minimum CPA 8.0.12 requirement; upgrade CPA and verify CPA_BASE_URL before retrying the database upgrade", numbers[0], numbers[1], numbers[2])
+		return false, fmt.Errorf("CPA %d.%d.%d is below the minimum supported version. Please upgrade CPA to v8.0.12 or later. Keeper will continue running.", numbers[0], numbers[1], numbers[2])
 	}
 	return true, nil
 }

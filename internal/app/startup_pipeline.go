@@ -65,15 +65,6 @@ func (a *App) Initialize(ctx context.Context) error {
 		}
 	case repository.PricingInitKindLegacy:
 		if !state.DataComplete {
-			// 只对尚未完成的旧库升级做有界诊断，不能把离线启动变成新的强制联网依赖。
-			client := cpa.NewClient(a.Config.CPABaseURL, a.Config.CPAManagementKey, a.Config.RequestTimeout, a.Config.TLSSkipVerify)
-			verified, err := client.CheckUpgradeCompatibility(ctx)
-			if err != nil {
-				return fmt.Errorf("check CPA compatibility before legacy migration: %w", err)
-			}
-			if !verified {
-				logrus.Warn("CPA compatibility could not be verified before the database upgrade; CPA 8.0.12 or newer is required, verify CPA_BASE_URL and CPA availability")
-			}
 			baseline, err := repository.MigrateLegacyPricingEvents(ctx, db, reader, a.Config.BackupDir, time.Now())
 			if err != nil {
 				return fmt.Errorf("migrate legacy pricing events: %w", err)
@@ -161,6 +152,14 @@ func (a *App) RunContext(ctx context.Context) error {
 		if err := a.StartupShell.ActivateReady(a.Router); err != nil {
 			logrus.WithError(err).Error("activate business router")
 			_ = a.StartupShell.Publish(api.StartupPhaseFailed, nil)
+		} else {
+			// 就绪后只检查一次，版本提示不参与迁移、收数或本地历史读取的门禁。
+			a.startBackgroundTask(func() {
+				client := cpa.NewClient(a.Config.CPABaseURL, a.Config.CPAManagementKey, a.Config.RequestTimeout, a.Config.TLSSkipVerify)
+				if _, err := client.CheckMinimumVersion(a.backgroundContext); err != nil && a.backgroundContext.Err() == nil {
+					logrus.Warn(err)
+				}
+			})
 		}
 	}
 	select {

@@ -433,7 +433,7 @@ docker compose pull cpa-usage-keeper
 docker compose up -d --no-deps cpa-usage-keeper
 ```
 
-During an incomplete legacy upgrade, Keeper checks CPA before migrating business data. An explicitly identified release older than CPA 8.0.12 stops the upgrade with an actionable log message. Unknown/dev versions or unavailable CPA only produce a warning; this check does not prove that every CPA feature is available. Fresh or already completed databases do not gain this startup network dependency.
+After Keeper is ready, it checks CPA once in the background. An explicitly identified release older than v8.0.12 produces an upgrade warning in the server log. Supported or unknown versions and unavailable CPA do not produce a version warning. This check never blocks startup, local history access, or data ingestion; remote features still depend on the actual CPA API compatibility.
 
 If startup fails, inspect the logs and `/api/v1/startup/status` (with `APP_BASE_PATH` when configured). Correcting the cause and restarting resumes the migration. When moving `WORK_DIR`, preserve `backups/YYYY-MM-DD/database_TIMESTAMP.db`: if the original M1 path is missing and its SHA-256 was recorded, Keeper can verify that exact date/file name under the new `WORK_DIR/backups` and resume. There is no `BACKUP_DIR` environment variable.
 

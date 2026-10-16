@@ -11,11 +11,11 @@ import (
 	"cpa-usage-keeper/internal/cpa"
 )
 
-func TestUpgradeCompatibilityUsesOnlyExplicitReleaseEvidence(t *testing.T) {
+func TestMinimumVersionUsesOnlyExplicitReleaseEvidence(t *testing.T) {
 	for _, tc := range []struct {
-		name, version     string
-		status            int
-		verified, blocked bool
+		name, version      string
+		status             int
+		verified, outdated bool
 	}{
 		{"old_success", "v7.9.9", 200, false, true},
 		{"below_minimum", "8.0.11", 200, false, true},
@@ -47,18 +47,18 @@ func TestUpgradeCompatibilityUsesOnlyExplicitReleaseEvidence(t *testing.T) {
 			}))
 			defer server.Close()
 			client := cpa.NewClient(server.URL+"/base", "private-key", time.Second, false)
-			verified, err := client.CheckUpgradeCompatibility(context.Background())
-			if verified != tc.verified || (err != nil) != tc.blocked || requests != 1 {
+			verified, err := client.CheckMinimumVersion(context.Background())
+			if verified != tc.verified || (err != nil) != tc.outdated || requests != 1 {
 				t.Fatalf("verified=%v error=%v requests=%d", verified, err, requests)
 			}
-			if err != nil && (!strings.Contains(err.Error(), "minimum CPA 8.0.12") || strings.Contains(err.Error(), "private-key") || strings.Contains(err.Error(), "not JSON")) {
+			if err != nil && (!strings.Contains(err.Error(), "Please upgrade CPA to v8.0.12 or later") || strings.Contains(err.Error(), "private-key") || strings.Contains(err.Error(), "not JSON")) {
 				t.Fatalf("unsafe or unactionable diagnostic: %v", err)
 			}
 		})
 	}
 }
 
-func TestUpgradeCompatibilityDoesNotFollowRedirectOrWaitForBody(t *testing.T) {
+func TestMinimumVersionDoesNotFollowRedirectOrWaitForBody(t *testing.T) {
 	for _, redirect := range []bool{false, true} {
 		t.Run(map[bool]string{false: "headers_only", true: "redirect"}[redirect], func(t *testing.T) {
 			requests := 0
@@ -77,7 +77,7 @@ func TestUpgradeCompatibilityDoesNotFollowRedirectOrWaitForBody(t *testing.T) {
 			defer server.Close()
 			client := cpa.NewClient(server.URL, "key", time.Second, false)
 			start := time.Now()
-			verified, err := client.CheckUpgradeCompatibility(context.Background())
+			verified, err := client.CheckMinimumVersion(context.Background())
 			if err != nil || verified != !redirect || requests != 1 || time.Since(start) > 500*time.Millisecond {
 				t.Fatalf("headers-only diagnostic: verified=%v requests=%d elapsed=%s error=%v", verified, requests, time.Since(start), err)
 			}
@@ -85,16 +85,16 @@ func TestUpgradeCompatibilityDoesNotFollowRedirectOrWaitForBody(t *testing.T) {
 	}
 }
 
-func TestUpgradeCompatibilityAllowsTemporaryFailureAndHonorsCancellation(t *testing.T) {
+func TestMinimumVersionAllowsTemporaryFailureAndHonorsCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
 	defer server.Close()
 	client := cpa.NewClient(server.URL, "key", 20*time.Millisecond, false)
-	if verified, err := client.CheckUpgradeCompatibility(context.Background()); verified || err != nil {
-		t.Fatalf("temporary timeout blocked offline upgrade: verified=%v error=%v", verified, err)
+	if verified, err := client.CheckMinimumVersion(context.Background()); verified || err != nil {
+		t.Fatalf("temporary timeout outdated offline upgrade: verified=%v error=%v", verified, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := client.CheckUpgradeCompatibility(ctx); err != context.Canceled {
+	if _, err := client.CheckMinimumVersion(ctx); err != context.Canceled {
 		t.Fatalf("caller cancellation ignored: %v", err)
 	}
 }
