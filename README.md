@@ -312,7 +312,9 @@ For either Compose setup, view Keeper logs from the deployment directory:
 docker compose logs --tail=100 -f cpa-usage-keeper
 ```
 
-To update Keeper, keep your configuration and data directories and run:
+For the first V1 → V2 upgrade, follow [Upgrade Safety and Recovery](#upgrade-safety-and-recovery) first to create an independent snapshot.
+
+For routine updates, keep your configuration and data directories and run:
 
 ```bash
 docker compose pull cpa-usage-keeper
@@ -417,6 +419,69 @@ notepad .env
 ```
 
 Set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD` before starting. Authentication is enabled by default; set `AUTH_ENABLED=false` explicitly only for an isolated deployment.
+
+### Upgrade Safety and Recovery
+
+Before the first V1 → V2 upgrade, stop Keeper and take an independent snapshot of the entire `WORK_DIR`, including `app.db` and any SQLite `-wal`/`-shm` files. Keep the snapshot outside `WORK_DIR/backups` and retain the V1 binary/image and configuration. The migration's automatic M1 backup uses the normal backup directory and is subject to daily backup retention; it is not a permanent rollback snapshot.
+
+For the default Compose layout, choose a snapshot directory that does not already exist:
+
+```bash
+docker compose stop cpa-usage-keeper
+cp -a ./data ./keeper-v1-snapshot
+docker compose pull cpa-usage-keeper
+docker compose up -d --no-deps cpa-usage-keeper
+```
+
+During an incomplete legacy upgrade, Keeper checks CPA before migrating business data. An explicitly identified release older than CPA 8.0.12 stops the upgrade with an actionable log message. Unknown/dev versions or unavailable CPA only produce a warning; this check does not prove that every CPA feature is available. Fresh or already completed databases do not gain this startup network dependency.
+
+If startup fails, inspect the logs and `/api/v1/startup/status` (with `APP_BASE_PATH` when configured). Correcting the cause and restarting resumes the migration. When moving `WORK_DIR`, preserve `backups/YYYY-MM-DD/database_TIMESTAMP.db`: if the original M1 path is missing and its SHA-256 was recorded, Keeper can verify that exact date/file name under the new `WORK_DIR/backups` and resume. There is no `BACKUP_DIR` environment variable.
+
+**Offline restore is only for an incomplete legacy migration** (`pricing_migration_state.data_complete = 0`). A startup failure after migration has completed is not eligible: normal inbox cleanup may already have removed messages needed for this recovery method. For a completed migration, use an independently retained snapshot and its matching application version instead. A snapshot rollback restores that point in time and does not retain data received after the snapshot.
+
+1. Stop Keeper and every process writing its database. Preserve the failed `WORK_DIR`, including existing SQLite sidecars, and the M1 backup before restoring.
+2. Locate the M1 `backup_path` recorded in the failed database. With the optional SQLite CLI, inspect it read-only:
+
+   ```bash
+   sqlite3 -readonly ./data/app.db \
+     'SELECT data_complete, backup_path FROM pricing_migration_state WHERE id = 1;'
+   ```
+
+3. Run the V2 `pricing-restore` tool, supplied beside the server in binary packages and installed by Homebrew. Set `-backup` to the original M1 file or an unchanged copy, `-fault` to the stopped failed database, and `-out` to a new file that does not exist:
+
+   ```bash
+   mkdir -p ./recovery
+   ./pricing-restore \
+     -backup /path/to/M1-copy.db \
+     -fault ./data/app.db \
+     -out ./recovery/restored.db
+   ```
+
+   On Windows use `.\pricing-restore.exe`; with Homebrew use `pricing-restore`. The tool verifies the recorded SHA-256, copies the M1 snapshot, and replays later inbox rows by their original IDs as pending. It publishes the new database only after validation and leaves both inputs unchanged. A backup with a nonempty WAL/journal is rejected: use the original standalone M1 file. For older unfinished states without a recorded fingerprint, the original recorded path must still be readable so the selected copy can be compared; if that evidence is lost, the tool refuses to guess.
+
+For Docker, keep the original service stopped. This default-layout example mounts the failed data read-only and writes only to a separate recovery directory. Replace the image tag with the V2 build used for the upgrade and the example M1 path with the recorded date/file name:
+
+```bash
+mkdir -p ./recovery
+docker run --rm --entrypoint /app/pricing-restore \
+  --mount type=bind,src="$(pwd)/data",dst=/data,readonly \
+  --mount type=bind,src="$(pwd)/recovery",dst=/restore \
+  ghcr.io/willxup/cpa-usage-keeper:YOUR_V2_TAG \
+  -backup /data/backups/YYYY-MM-DD/database_TIMESTAMP.db \
+  -fault /data/app.db \
+  -out /restore/restored.db
+```
+
+To use a relocated backup outside that mount, mount the copy read-only as well and pass its container path to `-backup`. The stored fingerprint identifies the file independently of its name or location. An older state without a fingerprint still needs its original recorded path available inside the container.
+
+After checking the tool's inbox boundaries and replay count, place the result in a new data directory and run the matching V1 version against that directory:
+
+```bash
+mkdir ./restored-data
+mv ./recovery/restored.db ./restored-data/app.db
+```
+
+For Compose, map `./restored-data:/data` and use the retained V1 image; for a binary/Homebrew service, set `WORK_DIR` to the new directory. Keep the failed directory intact. Do not place the restored main file beside the failed database's old WAL/SHM files.
 
 ### Health Checks
 

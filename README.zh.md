@@ -312,7 +312,9 @@ docker compose up -d
 docker compose logs --tail=100 -f cpa-usage-keeper
 ```
 
-更新 Keeper 时，保留配置和数据目录，执行：
+首次从 V1 升级到 V2 前，先按[升级保护与恢复](#升级保护与恢复)创建独立快照。
+
+日常更新 Keeper 时，保留配置和数据目录，执行：
 
 ```bash
 docker compose pull cpa-usage-keeper
@@ -417,6 +419,69 @@ notepad .env
 ```
 
 启动前请设置 `CPA_BASE_URL`、`CPA_MANAGEMENT_KEY` 和私有的 `LOGIN_PASSWORD`。认证默认启用；只有隔离部署才显式设置 `AUTH_ENABLED=false`。
+
+### 升级保护与恢复
+
+首次从 V1 升级到 V2 前，先停止 Keeper，独立快照整个 `WORK_DIR`，包括 `app.db` 和可能存在的 SQLite `-wal`/`-shm` 文件。快照应放在 `WORK_DIR/backups` 之外，并保留原 V1 程序或镜像及配置。迁移自动创建的 M1 备份使用日常备份目录，仍受日常备份保留策略清理，不能当作永久回滚快照。
+
+使用默认 Compose 目录时，选择一个尚不存在的快照目录：
+
+```bash
+docker compose stop cpa-usage-keeper
+cp -a ./data ./keeper-v1-snapshot
+docker compose pull cpa-usage-keeper
+docker compose up -d --no-deps cpa-usage-keeper
+```
+
+旧库迁移尚未完成时，Keeper 会在业务数据迁移前检查 CPA。明确识别为低于 CPA 8.0.12 的正式版本会阻止升级，并在日志中给出处理提示。未知/dev 版本或 CPA 暂时不可达只会警告；这项检查不保证全部 CPA 功能可用。新建或迁移已完成的数据库不会因此新增启动联网依赖。
+
+启动失败时，查看日志及 `/api/v1/startup/status`（配置了 `APP_BASE_PATH` 时加上此前缀）。处理原因后重启即可续跑。搬迁 `WORK_DIR` 时保留 `backups/YYYY-MM-DD/database_TIMESTAMP.db` 目录结构：原 M1 路径缺失且已记录 SHA-256 时，Keeper 可在新 `WORK_DIR/backups` 下验证同一日期和精确文件名后续跑。产品没有 `BACKUP_DIR` 环境变量。
+
+**离线恢复仅适用于尚未完成的旧库迁移**（`pricing_migration_state.data_complete = 0`）。如果迁移已完成、后续启动阶段才失败，也不能使用此方式恢复：正常 inbox 清理可能已经删除所需消息。迁移完成后的回滚应使用独立保留的快照及匹配版本的程序。快照回滚只恢复到快照时刻，不保留快照之后新增的数据。
+
+1. 停止 Keeper 及所有写入数据库的进程。先保留故障 `WORK_DIR`（包括现有 SQLite sidecar）和 M1 备份。
+2. 找到故障库记录的 M1 `backup_path`。如果装有可选的 SQLite CLI，可只读查看：
+
+   ```bash
+   sqlite3 -readonly ./data/app.db \
+     'SELECT data_complete, backup_path FROM pricing_migration_state WHERE id = 1;'
+   ```
+
+3. 使用 V2 提供的 `pricing-restore`。二进制包将它放在主程序旁，Homebrew 也会安装它。`-backup` 指向原 M1 文件或内容未变化的副本，`-fault` 指向已停写的故障库，`-out` 必须是尚不存在的新文件：
+
+   ```bash
+   mkdir -p ./recovery
+   ./pricing-restore \
+     -backup /path/to/M1-copy.db \
+     -fault ./data/app.db \
+     -out ./recovery/restored.db
+   ```
+
+   Windows 使用 `.\pricing-restore.exe`，Homebrew 使用 `pricing-restore`。工具验证已记录的 SHA-256，复制 M1 快照，再按原始 ID 补回备份后接收的 inbox 行并重置为待处理；全部验证通过后才发布新库，两个输入保持原样。带非空 WAL/journal 的备份会被拒绝，应使用原始独立 M1 文件。较早未记录指纹的未完成状态，仍须原记录路径可读，才能与显式副本比对；原身份依据丢失时工具会拒绝猜测。
+
+Docker 恢复时，保持原服务停止。下面按默认目录只读挂载故障数据，并将结果写入单独的恢复目录。将镜像 tag 换成升级时使用的 V2 构建，将示例 M1 路径换成记录的日期和文件名：
+
+```bash
+mkdir -p ./recovery
+docker run --rm --entrypoint /app/pricing-restore \
+  --mount type=bind,src="$(pwd)/data",dst=/data,readonly \
+  --mount type=bind,src="$(pwd)/recovery",dst=/restore \
+  ghcr.io/willxup/cpa-usage-keeper:YOUR_V2_TAG \
+  -backup /data/backups/YYYY-MM-DD/database_TIMESTAMP.db \
+  -fault /data/app.db \
+  -out /restore/restored.db
+```
+
+如备份已搬到该挂载目录之外，再将副本只读挂载，并把它的容器内路径传给 `-backup`。已存指纹独立于文件名和位置识别备份；无指纹的旧状态仍须在容器内提供原记录路径。
+
+核对工具输出的 inbox 边界及补回数量后，将结果放进新的数据目录，并用匹配的 V1 版本运行：
+
+```bash
+mkdir ./restored-data
+mv ./recovery/restored.db ./restored-data/app.db
+```
+
+Compose 改为挂载 `./restored-data:/data` 并使用保留的 V1 镜像；二进制或 Homebrew 服务将 `WORK_DIR` 指向新目录。完整保留原故障目录，不要让恢复后的主文件与故障库遗留的 WAL/SHM 文件混用。
 
 ### 健康检查
 
