@@ -50,7 +50,7 @@ func makeRestoreFixture(t *testing.T, oldBackup bool) restoreFixture {
 	}
 	mustRestoreExec(t, fault, fmt.Sprintf(pricingRestoreInboxDDL, column))
 	mustRestoreExec(t, fault, `CREATE TABLE pricing_migration_state (
- id INTEGER PRIMARY KEY, init_kind TEXT NOT NULL, backup_path TEXT, baseline_json TEXT
+ id INTEGER PRIMARY KEY, init_kind TEXT NOT NULL, data_complete BOOLEAN NOT NULL DEFAULT 0, backup_path TEXT, baseline_json TEXT
 )`)
 	mustRestoreExec(t, fault, "INSERT INTO pricing_migration_state(id,init_kind) VALUES(1,'legacy')")
 	insertRestoreInbox(t, fault, column, 1, "before-one", "pending", "2026-09-22 10:00:00.123456789", "2026-09-22 10:00:01", "2026-09-22 10:00:02")
@@ -269,7 +269,7 @@ func TestRestorePricingBackupProcessesDuplicateContentOncePerOriginalID(t *testi
 			_ = sqlDB.Close()
 		}
 	})
-	if err := fault.Exec("UPDATE pricing_migration_state SET init_kind='legacy' WHERE id=1").Error; err != nil {
+	if err := fault.Exec("UPDATE pricing_migration_state SET init_kind='legacy', data_complete=0 WHERE id=1").Error; err != nil {
 		t.Fatal(err)
 	}
 	faultSQL, err := fault.DB()
