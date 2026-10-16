@@ -41,3 +41,26 @@ func TestReadinessSeparatesStartupFailureAndRecoveryFromLiveness(t *testing.T) {
 		})
 	}
 }
+
+func TestReadinessRedirectsOnlyNoncanonicalGETProbePaths(t *testing.T) {
+	staticFS := testStaticFS(t, map[string]string{"index.html": "<html>startup</html>"})
+	for _, basePath := range []string{"", "/cpa"} {
+		shell := api.NewStartupShell(staticFS, api.AuthConfig{Enabled: true, BasePath: basePath}, basePath)
+		canonical := basePath + "/readyz"
+		for _, path := range []string{basePath + "//readyz", basePath + "/extra/../readyz"} {
+			resp := requestStartup(t, shell, http.MethodGet, path)
+			if resp.Code != http.StatusTemporaryRedirect || resp.Header().Get("Location") != canonical || resp.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("noncanonical readiness %s: code=%d headers=%v body=%s", path, resp.Code, resp.Header(), resp.Body.String())
+			}
+		}
+		for _, tc := range []struct{ method, path string }{
+			{http.MethodGet, basePath + "/extra/../dashboard"},
+			{http.MethodPost, basePath + "//readyz"},
+		} {
+			resp := requestStartup(t, shell, tc.method, tc.path)
+			if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "<html>startup</html>") || resp.Header().Get("Location") != "" {
+				t.Fatalf("SPA behavior changed for %s %s: code=%d headers=%v body=%s", tc.method, tc.path, resp.Code, resp.Header(), resp.Body.String())
+			}
+		}
+	}
+}
