@@ -106,7 +106,7 @@
 
 ## 快速开始
 
-> Keeper 支持 CPA v8.0.12+。
+> Keeper 支持 CPA v8.0.12+。请开启 CPA 使用统计，将 `observability.usage.usage-statistics-enabled` 设为 `true`。
 
 > 同一 CPA 接入多个 usage 采集服务时，请确保均使用订阅模式，否则可能导致收数中断或数据不完整。
 
@@ -312,9 +312,7 @@ docker compose up -d
 docker compose logs --tail=100 -f cpa-usage-keeper
 ```
 
-首次从 V1 升级到 V2 前，先按[升级保护与恢复](#升级保护与恢复)创建独立快照。
-
-日常更新 Keeper 时，保留配置和数据目录，执行：
+更新 Keeper 时，保留配置和数据目录，执行：
 
 ```bash
 docker compose pull cpa-usage-keeper
@@ -420,81 +418,6 @@ notepad .env
 
 启动前请设置 `CPA_BASE_URL`、`CPA_MANAGEMENT_KEY` 和私有的 `LOGIN_PASSWORD`。认证默认启用；只有隔离部署才显式设置 `AUTH_ENABLED=false`。
 
-### 升级保护与恢复
-
-首次从 V1 升级到 V2 前，先停止 Keeper，独立快照整个 `WORK_DIR`，包括 `app.db` 和可能存在的 SQLite `-wal`/`-shm` 文件。快照应放在 `WORK_DIR/backups` 之外，并保留原 V1 程序或镜像及配置。迁移自动创建的 M1 备份使用日常备份目录，仍受日常备份保留策略清理，不能当作永久回滚快照。
-
-备份源应取自现有部署配置，不使用模板默认值。先核对实际生效的 `WORK_DIR` 及覆盖该目录的容器挂载；`docker compose config` 可查看解析后的 Compose 配置，`docker inspect` 可查看现有容器的实际挂载。例如 `WORK_DIR=/store/keeper`，挂载为 `/srv/apps:/store` 时，宿主机数据目录就是 `/srv/apps/keeper`。二进制或 Homebrew 部署直接使用解析后的 `WORK_DIR`。
-
-执行下面的 bind mount 示例前，将 shell 变量 `keeper_data_dir` 设为该实际宿主机目录；示例不提供默认值。命名卷应使用卷快照或导出方式，不适用这里的宿主机目录 `cp` 命令。选择尚不存在的快照目录；命令使用 `&&` 串联，任何一步失败都不会继续升级：
-
-```bash
-: "${keeper_data_dir:?Set keeper_data_dir from the effective WORK_DIR and container mounts}" &&
-test -f "$keeper_data_dir/app.db" &&
-test ! -e ./keeper-v1-snapshot &&
-docker compose stop cpa-usage-keeper &&
-cp -a "$keeper_data_dir" ./keeper-v1-snapshot &&
-docker compose pull cpa-usage-keeper &&
-docker compose up -d --no-deps cpa-usage-keeper
-```
-
-Keeper 就绪后会在后台检查一次 CPA。只有明确识别为低于 v8.0.12 的正式版本时，才在服务日志中提示升级；版本符合要求、版本未知或 CPA 不可达时不输出版本警告。检查不会阻止启动、本地历史访问或数据接收；远程功能仍取决于 CPA 接口的实际兼容性。
-
-启动失败时，查看日志及 `/api/v1/startup/status`（配置了 `APP_BASE_PATH` 时加上此前缀）。处理原因后重启即可续跑。搬迁 `WORK_DIR` 时保留 `backups/YYYY-MM-DD/database_TIMESTAMP.db` 目录结构：原 M1 路径缺失且已记录 SHA-256 时，Keeper 可在新 `WORK_DIR/backups` 下验证同一日期和精确文件名后续跑。产品没有 `BACKUP_DIR` 环境变量。
-
-**离线恢复仅适用于尚未完成的旧库迁移**（`pricing_migration_state.data_complete = 0`）。如果迁移已完成、后续启动阶段才失败，也不能使用此方式恢复：正常 inbox 清理可能已经删除所需消息。迁移完成后的回滚应使用独立保留的快照及匹配版本的程序。快照回滚只恢复到快照时刻，不保留快照之后新增的数据。
-
-1. 停止 Keeper 及所有写入数据库的进程。先保留故障 `WORK_DIR`（包括现有 SQLite sidecar）和 M1 备份。后续命令中的 `keeper_data_dir` 应指向该故障数据目录；新开终端时需重新设置。
-2. 找到故障库记录的 M1 `backup_path`。如果装有可选的 SQLite CLI，可只读查看：
-
-   ```bash
-   sqlite3 -readonly "$keeper_data_dir/app.db" \
-     'SELECT data_complete, backup_path FROM pricing_migration_state WHERE id = 1;'
-   ```
-
-3. 使用 V2 提供的 `pricing-restore`。二进制包将它放在主程序旁，Homebrew 也会安装它。`-backup` 指向原 M1 文件或内容未变化的副本，`-fault` 指向已停写的故障库，`-out` 必须是尚不存在的新文件：
-
-   ```bash
-   mkdir -p ./recovery
-   ./pricing-restore \
-     -backup /path/to/M1-copy.db \
-     -fault "$keeper_data_dir/app.db" \
-     -out ./recovery/restored.db
-   ```
-
-   Windows 使用 `.\pricing-restore.exe`，Homebrew 使用 `pricing-restore`。工具验证已记录的 SHA-256，复制 M1 快照，再按原始 ID 补回备份后接收的 inbox 行并重置为待处理；全部验证通过后才发布新库，两个输入保持原样。带非空 WAL/journal 的备份会被拒绝，应使用原始独立 M1 文件。较早未记录指纹的未完成状态，仍须原记录路径可读，才能与显式副本比对；原身份依据丢失时工具会拒绝猜测。
-
-Docker 恢复时，保持原服务停止，使用前述根据部署配置确定的实际 `keeper_data_dir`。下面的 bind mount 示例只读挂载该目录，并将结果写入单独的恢复目录；此处 `/data` 是临时恢复容器的挂载目标，并不要求原部署使用相同路径。将镜像 tag 换成升级时使用的 V2 构建，将示例 M1 路径换成记录的日期和文件名：
-
-```bash
-: "${keeper_data_dir:?Set keeper_data_dir from the effective WORK_DIR and container mounts}" &&
-mkdir -p ./recovery &&
-docker run --rm --entrypoint /app/pricing-restore \
-  --mount type=bind,src="$(cd -- "$keeper_data_dir" && pwd)",dst=/data,readonly \
-  --mount type=bind,src="$(pwd)/recovery",dst=/restore \
-  ghcr.io/willxup/cpa-usage-keeper:YOUR_V2_TAG \
-  -backup /data/backups/YYYY-MM-DD/database_TIMESTAMP.db \
-  -fault /data/app.db \
-  -out /restore/restored.db
-```
-
-如备份已搬到该挂载目录之外，再将副本只读挂载，并把它的容器内路径传给 `-backup`。已存指纹独立于文件名和位置识别备份；无指纹的旧状态仍须在容器内提供原记录路径。
-
-核对工具输出的 inbox 边界及补回数量后，将结果放进新的数据目录，并用匹配的 V1 版本运行：
-
-```bash
-mkdir ./restored-data
-mv ./recovery/restored.db ./restored-data/app.db
-```
-
-Compose 改为挂载 `./restored-data:/data` 并使用保留的 V1 镜像；二进制或 Homebrew 服务将 `WORK_DIR` 指向新目录。完整保留原故障目录，不要让恢复后的主文件与故障库遗留的 WAL/SHM 文件混用。
-
-### 健康检查
-
-`GET /healthz` 是存活检查：只要 Keeper 仍可提供 HTTP，迁移期间或启动失败后均返回 `200`。部署就绪检查应使用 `GET /readyz`：打开数据库、迁移及失败阶段返回 `503`，完整业务就绪后才返回 `200`。两条路径都带上 `APP_BASE_PATH`，例如 `/cpa/readyz`；就绪响应禁止缓存。
-
-Docker 镜像检查 `/readyz`。长时间迁移可能让容器显示 `unhealthy`，Docker 本身不会因此重启容器。在编排平台上，readiness 使用 `/readyz`，liveness 使用 `/healthz`。不要因 readiness 失败重启进程，也不要为数据库迁移设置过短的 startup probe 期限。启动失败时状态页仍可访问；查看日志、处理原因后，重启 Keeper 以重试。
-
 ## 配置
 
 复制配置模板：
@@ -562,7 +485,7 @@ Auth Files 定时限额刷新在 Auth Files 巡检弹窗的小齿轮中配置。
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `REDIS_QUEUE_ADDR` | 否 | 从 `CPA_BASE_URL` 推导 | 显式设置时优先使用该地址；留空时沿用 `CPA_BASE_URL` 的主机和显式端口，未指定端口时使用 `8317`。独立地址填写 `host:port` |
-| `REDIS_QUEUE_TLS` | 否 | `false` | 是否使用 TLS 连接 Redis 队列；显式设置 `REDIS_QUEUE_ADDR` 且需要 TLS 时设为 `true` |
+| `REDIS_QUEUE_TLS` | 否 | `false` | 设为 `true` 强制启用 Redis 队列 TLS；未指定队列地址时，默认跟随 `CPA_BASE_URL` 的协议。`false` 不会覆盖自动推导的 TLS 设置。 |
 | `REDIS_QUEUE_BATCH_SIZE` | 否 | `10000` | 每次最多拉取的队列记录数 |
 | `REDIS_QUEUE_IDLE_INTERVAL` | 否 | `1s` | 队列为空时的检查间隔 |
 
@@ -574,7 +497,7 @@ Auth Files 定时限额刷新在 Auth Files 巡检弹窗的小齿轮中配置。
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
 | `LOG_RETENTION_DAYS` | 否 | `7` | 综合日志保留历史天数，并额外保留当天；`0` 表示不自动清理。仅错误日志固定保留历史 30 天及当天 |
-| `BACKUP_ENABLED` | 否 | `true` | 是否启用 SQLite 数据库备份 |
+| `BACKUP_ENABLED` | 否 | `true` | 是否启用定时数据库备份 |
 | `BACKUP_INTERVAL` | 否 | `24h` | 数据库备份间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
 | `USAGE_RAW_RETENTION_DAYS` | 否 | `0` | 原始请求总保留天数，仅清理归档表；`0` 永久保留，`>=90` 生效，负数及 `1～89` 按 `0` 处理并记录 warning，不影响启动 |
@@ -622,10 +545,6 @@ CPA 与 Keeper 浏览器同源时，可以不设置 `CPA_PUBLIC_URL`，“返回
 ```env
 CPA_PUBLIC_URL=https://cpa.example.com
 ```
-
-## Benchmark
-
-`linux/amd64` 生产型容量测试覆盖持续 ingestion、Dashboard 延迟、CPU 利用率和 Keeper cgroup 峰值内存，完整结果见 [容量 Benchmark 报告](./internal/benchmark/REPORT.zh.md)。
 
 ## License
 

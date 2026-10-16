@@ -106,7 +106,7 @@ CPA plugin embedding in CPAMC is also available. Deploy with Docker Compose, Hom
 
 ## Quick Start
 
-> Keeper supports CPA v8.0.12+.
+> Keeper supports CPA v8.0.12+. Enable CPA usage statistics by setting `observability.usage.usage-statistics-enabled` to `true`.
 
 > When multiple usage collectors share one CPA instance, ensure they all use subscription mode; otherwise, collection may stop or become incomplete.
 
@@ -312,9 +312,7 @@ For either Compose setup, view Keeper logs from the deployment directory:
 docker compose logs --tail=100 -f cpa-usage-keeper
 ```
 
-For the first V1 → V2 upgrade, follow [Upgrade Safety and Recovery](#upgrade-safety-and-recovery) first to create an independent snapshot.
-
-For routine updates, keep your configuration and data directories and run:
+To update Keeper, keep your configuration and data directories and run:
 
 ```bash
 docker compose pull cpa-usage-keeper
@@ -420,81 +418,6 @@ notepad .env
 
 Set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD` before starting. Authentication is enabled by default; set `AUTH_ENABLED=false` explicitly only for an isolated deployment.
 
-### Upgrade Safety and Recovery
-
-Before the first V1 → V2 upgrade, stop Keeper and take an independent snapshot of the entire `WORK_DIR`, including `app.db` and any SQLite `-wal`/`-shm` files. Keep the snapshot outside `WORK_DIR/backups` and retain the V1 binary/image and configuration. The migration's automatic M1 backup uses the normal backup directory and is subject to daily backup retention; it is not a permanent rollback snapshot.
-
-Determine the source from the existing deployment configuration, not a template default. Check the effective `WORK_DIR` and the container mount covering it; `docker compose config` shows the resolved Compose configuration, and `docker inspect` shows the existing container mounts. For example, `WORK_DIR=/store/keeper` with `/srv/apps:/store` means the host data directory is `/srv/apps/keeper`. For binary/Homebrew deployments, use the resolved `WORK_DIR` directly.
-
-Set the shell variable `keeper_data_dir` to that actual host directory before running the following bind-mount example. It deliberately has no default. Named volumes require a volume snapshot/export instead of this host-directory `cp` example. Choose a snapshot directory that does not already exist; the chained commands stop if any step fails:
-
-```bash
-: "${keeper_data_dir:?Set keeper_data_dir from the effective WORK_DIR and container mounts}" &&
-test -f "$keeper_data_dir/app.db" &&
-test ! -e ./keeper-v1-snapshot &&
-docker compose stop cpa-usage-keeper &&
-cp -a "$keeper_data_dir" ./keeper-v1-snapshot &&
-docker compose pull cpa-usage-keeper &&
-docker compose up -d --no-deps cpa-usage-keeper
-```
-
-After Keeper is ready, it checks CPA once in the background. An explicitly identified release older than v8.0.12 produces an upgrade warning in the server log. Supported or unknown versions and unavailable CPA do not produce a version warning. This check never blocks startup, local history access, or data ingestion; remote features still depend on the actual CPA API compatibility.
-
-If startup fails, inspect the logs and `/api/v1/startup/status` (with `APP_BASE_PATH` when configured). Correcting the cause and restarting resumes the migration. When moving `WORK_DIR`, preserve `backups/YYYY-MM-DD/database_TIMESTAMP.db`: if the original M1 path is missing and its SHA-256 was recorded, Keeper can verify that exact date/file name under the new `WORK_DIR/backups` and resume. There is no `BACKUP_DIR` environment variable.
-
-**Offline restore is only for an incomplete legacy migration** (`pricing_migration_state.data_complete = 0`). A startup failure after migration has completed is not eligible: normal inbox cleanup may already have removed messages needed for this recovery method. For a completed migration, use an independently retained snapshot and its matching application version instead. A snapshot rollback restores that point in time and does not retain data received after the snapshot.
-
-1. Stop Keeper and every process writing its database. Preserve the failed `WORK_DIR`, including existing SQLite sidecars, and the M1 backup before restoring. In the commands below, `keeper_data_dir` must point to that failed data directory (set it again if using a new shell).
-2. Locate the M1 `backup_path` recorded in the failed database. With the optional SQLite CLI, inspect it read-only:
-
-   ```bash
-   sqlite3 -readonly "$keeper_data_dir/app.db" \
-     'SELECT data_complete, backup_path FROM pricing_migration_state WHERE id = 1;'
-   ```
-
-3. Run the V2 `pricing-restore` tool, supplied beside the server in binary packages and installed by Homebrew. Set `-backup` to the original M1 file or an unchanged copy, `-fault` to the stopped failed database, and `-out` to a new file that does not exist:
-
-   ```bash
-   mkdir -p ./recovery
-   ./pricing-restore \
-     -backup /path/to/M1-copy.db \
-     -fault "$keeper_data_dir/app.db" \
-     -out ./recovery/restored.db
-   ```
-
-   On Windows use `.\pricing-restore.exe`; with Homebrew use `pricing-restore`. The tool verifies the recorded SHA-256, copies the M1 snapshot, and replays later inbox rows by their original IDs as pending. It publishes the new database only after validation and leaves both inputs unchanged. A backup with a nonempty WAL/journal is rejected: use the original standalone M1 file. For older unfinished states without a recorded fingerprint, the original recorded path must still be readable so the selected copy can be compared; if that evidence is lost, the tool refuses to guess.
-
-For Docker, keep the original service stopped. Use the actual `keeper_data_dir` determined from the deployment configuration above. This bind-mount example mounts it read-only and writes only to a separate recovery directory; `/data` below is the temporary recovery container destination, not an assumption about the original deployment. Replace the image tag with the V2 build used for the upgrade and the example M1 path with the recorded date/file name:
-
-```bash
-: "${keeper_data_dir:?Set keeper_data_dir from the effective WORK_DIR and container mounts}" &&
-mkdir -p ./recovery &&
-docker run --rm --entrypoint /app/pricing-restore \
-  --mount type=bind,src="$(cd -- "$keeper_data_dir" && pwd)",dst=/data,readonly \
-  --mount type=bind,src="$(pwd)/recovery",dst=/restore \
-  ghcr.io/willxup/cpa-usage-keeper:YOUR_V2_TAG \
-  -backup /data/backups/YYYY-MM-DD/database_TIMESTAMP.db \
-  -fault /data/app.db \
-  -out /restore/restored.db
-```
-
-To use a relocated backup outside that mount, mount the copy read-only as well and pass its container path to `-backup`. The stored fingerprint identifies the file independently of its name or location. An older state without a fingerprint still needs its original recorded path available inside the container.
-
-After checking the tool's inbox boundaries and replay count, place the result in a new data directory and run the matching V1 version against that directory:
-
-```bash
-mkdir ./restored-data
-mv ./recovery/restored.db ./restored-data/app.db
-```
-
-For Compose, map `./restored-data:/data` and use the retained V1 image; for a binary/Homebrew service, set `WORK_DIR` to the new directory. Keep the failed directory intact. Do not place the restored main file beside the failed database's old WAL/SHM files.
-
-### Health Checks
-
-`GET /healthz` is a liveness check: it returns `200` while Keeper can serve HTTP, including during migration or after startup fails. Use `GET /readyz` for deployment readiness: it returns `503` while opening, migrating, or failed, and `200` only after the business service is ready. Both routes use `APP_BASE_PATH`, for example `/cpa/readyz`; readiness responses are not cached.
-
-The Docker image checks `/readyz`. A long migration can mark the container `unhealthy`; Docker itself does not restart a container because of that health status. In an orchestrator, use `/readyz` for readiness and `/healthz` for liveness. Do not restart on failed readiness or impose a short startup-probe deadline on database migrations. A failed startup keeps its status page available; inspect the logs, correct the cause, and restart Keeper to retry.
-
 ## Configuration
 
 Copy the example config:
@@ -562,7 +485,7 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `REDIS_QUEUE_ADDR` | No | Derived from `CPA_BASE_URL` | An explicit value takes precedence. When empty, use the hostname and explicit port from `CPA_BASE_URL`, or `8317` if no port is specified. Set `host:port` for a separate address |
-| `REDIS_QUEUE_TLS` | No | `false` | Use TLS for Redis queue connection; set `true` when `REDIS_QUEUE_ADDR` is explicit and requires TLS |
+| `REDIS_QUEUE_TLS` | No | `false` | Set to `true` to force TLS for the Redis queue; when no queue address is specified, TLS follows the protocol of `CPA_BASE_URL` by default. `false` does not override automatically inferred TLS settings. |
 | `REDIS_QUEUE_BATCH_SIZE` | No | `10000` | Maximum queue records per pull |
 | `REDIS_QUEUE_IDLE_INTERVAL` | No | `1s` | Empty queue check interval |
 
@@ -574,7 +497,7 @@ Scheduled Auth Files quota refresh is configured from the gear button in the Aut
 | `LOG_LEVEL` | No | `info` | Log level |
 | `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
 | `LOG_RETENTION_DAYS` | No | `7` | Combined-log history days, plus the current day; `0` disables cleanup. Error-only logs keep 30 history days plus the current day |
-| `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
+| `BACKUP_ENABLED` | No | `true` | Enable scheduled database backups |
 | `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
 | `USAGE_RAW_RETENTION_DAYS` | No | `0` | Total raw-request retention in days; only archives are deleted. `0` retains archives forever; `>=90` enables cleanup. Negative values and `1–89` fall back to `0` with a warning without preventing startup |
@@ -622,10 +545,6 @@ When CPA and Keeper share a browser origin, `CPA_PUBLIC_URL` can be omitted and 
 ```env
 CPA_PUBLIC_URL=https://cpa.example.com
 ```
-
-## Benchmark
-
-Production-style `linux/amd64` capacity measurements for sustained ingestion, Dashboard latency, CPU utilization, and Keeper cgroup peak memory are available in the [Capacity Benchmark Report](./internal/benchmark/REPORT.md).
 
 ## License
 
