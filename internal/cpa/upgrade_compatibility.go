@@ -25,28 +25,24 @@ func (c *Client) CheckUpgradeCompatibility(ctx context.Context) (bool, error) {
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, upgradeCompatibilityTimeout)
 	defer cancel()
-	// 诊断最多两个请求；不追随重定向，也不读取或输出凭证列表正文。
+	// CPA 8.0.12 保留的轻量只读 debug 接口同样携带版本头，无需枚举凭证。
+	// 只发一次请求；不追随重定向，也不读取或输出响应正文。
 	client := *c.httpClient
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	probe := func(path string) (int, string, error) {
-		req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, c.baseURL+path, nil)
+	probe := func() (string, error) {
+		req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, c.baseURL+"/v0/management/debug", nil)
 		if err != nil {
-			return 0, "", err
+			return "", err
 		}
 		req.Header.Set("Authorization", "Bearer "+c.managementKey)
 		resp, err := client.Do(req)
 		if err != nil {
-			return 0, "", err
+			return "", err
 		}
 		defer resp.Body.Close()
-		return resp.StatusCode, strings.TrimSpace(resp.Header.Get("X-CPA-VERSION")), nil
+		return strings.TrimSpace(resp.Header.Get("X-CPA-VERSION")), nil
 	}
-	status, version, err := probe(cpaManagementAuthFilesEndpoint + "?page=1&page_size=1")
-	if err == nil && status == http.StatusNotFound && version == "" {
-		// V7 没有 V8 路由，404 不经过管理版本头中间件；仅用无秘密的旧 debug GET 取版本证据。
-		// 这是一次升级诊断，运行中的采集和管理端点始终使用 V8。
-		_, version, err = probe("/v0/management/debug")
-	}
+	version, err := probe()
 	if ctx.Err() != nil {
 		return false, ctx.Err()
 	}

@@ -17,10 +17,6 @@ func TestPricingUpgradeCompatibilityBlocksBeforeM1AndBusinessDDL(t *testing.T) {
 	seed := seedPublishedPricingRuntime(t, cfg)
 	closePricingStartupPools(t, seed, seed)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v8/management/credentials" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
 		if r.URL.Path != "/v0/management/debug" {
 			t.Errorf("unexpected compatibility request: %s", r.URL)
 		}

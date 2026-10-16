@@ -13,26 +13,23 @@ import (
 
 func TestUpgradeCompatibilityUsesOnlyExplicitReleaseEvidence(t *testing.T) {
 	for _, tc := range []struct {
-		name, version, diagnostic string
-		status                    int
-		verified, blocked         bool
-		requests                  int
+		name, version     string
+		status            int
+		verified, blocked bool
 	}{
-		{"old_success", "v7.9.9", "", 200, false, true, 1},
-		{"below_minimum", "8.0.11", "", 200, false, true, 1},
-		{"minimum", "v8.0.12", "", 200, true, false, 1},
-		{"newer", "8.1.0", "", 200, true, false, 1},
-		{"next_major", "v9.0.0", "", 200, true, false, 1},
-		{"old_failure", "v8.0.11", "", 503, false, true, 1},
-		{"unknown_success", "", "", 200, false, false, 1},
-		{"dev", "dev", "v7.9.9", 404, false, false, 1},
-		{"fork", "v7.9.9-custom", "", 200, false, false, 1},
-		{"malformed", "v7.1", "", 200, false, false, 1},
-		{"overflow", "18446744073709551616.0.0", "", 200, false, false, 1},
-		{"generic_404", "", "", 404, false, false, 2},
-		{"real_v7_404", "", "v7.9.9", 404, false, true, 2},
-		{"diagnostic_dev", "", "dev", 404, false, false, 2},
-		{"gateway_failure", "", "v7.9.9", 502, false, false, 1},
+		{"old_success", "v7.9.9", 200, false, true},
+		{"below_minimum", "8.0.11", 200, false, true},
+		{"minimum", "v8.0.12", 200, true, false},
+		{"newer", "8.1.0", 200, true, false},
+		{"next_major", "v9.0.0", 200, true, false},
+		{"old_failure", "v8.0.11", 503, false, true},
+		{"unknown_success", "", 200, false, false},
+		{"dev", "dev", 404, false, false},
+		{"fork", "v7.9.9-custom", 200, false, false},
+		{"malformed", "v7.1", 200, false, false},
+		{"overflow", "18446744073709551616.0.0", 200, false, false},
+		{"generic_404", "", 404, false, false},
+		{"gateway_failure", "", 502, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requests := 0
@@ -41,24 +38,17 @@ func TestUpgradeCompatibilityUsesOnlyExplicitReleaseEvidence(t *testing.T) {
 				if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer private-key" {
 					t.Errorf("incorrect diagnostic request: method=%s auth=%q", r.Method, r.Header.Get("Authorization"))
 				}
-				if requests == 1 {
-					if r.URL.Path != "/base/v8/management/credentials" || r.URL.RawQuery != "page=1&page_size=1" {
-						t.Errorf("V8 diagnostic path: %s", r.URL)
-					}
-					w.Header().Set("X-CPA-VERSION", tc.version)
-					w.WriteHeader(tc.status)
-				} else {
-					if r.URL.Path != "/base/v0/management/debug" {
-						t.Errorf("unexpected legacy diagnostic path: %s", r.URL)
-					}
-					w.Header().Set("X-CPA-VERSION", tc.diagnostic)
+				if r.URL.Path != "/base/v0/management/debug" || r.URL.RawQuery != "" {
+					t.Errorf("unexpected diagnostic path: %s", r.URL)
 				}
+				w.Header().Set("X-CPA-VERSION", tc.version)
+				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte("not JSON; this body must not be decoded or reported"))
 			}))
 			defer server.Close()
 			client := cpa.NewClient(server.URL+"/base", "private-key", time.Second, false)
 			verified, err := client.CheckUpgradeCompatibility(context.Background())
-			if verified != tc.verified || (err != nil) != tc.blocked || requests != tc.requests {
+			if verified != tc.verified || (err != nil) != tc.blocked || requests != 1 {
 				t.Fatalf("verified=%v error=%v requests=%d", verified, err, requests)
 			}
 			if err != nil && (!strings.Contains(err.Error(), "minimum CPA 8.0.12") || strings.Contains(err.Error(), "private-key") || strings.Contains(err.Error(), "not JSON")) {
