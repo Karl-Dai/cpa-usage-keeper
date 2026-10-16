@@ -341,11 +341,16 @@ func TestRestorePricingBackupProcessesDuplicateContentOncePerOriginalID(t *testi
 
 func TestPricingRestoreCLIProducesNewDatabase(t *testing.T) {
 	fixture := makeRestoreFixture(t, true)
+	recordRestoreFingerprint(t, fixture)
+	selected := copyRestoreBackup(t, fixture)
+	if err := os.Remove(fixture.backupPath); err != nil {
+		t.Fatal(err)
+	}
 	insertRestoreInbox(t, fixture.fault, "queue_key", 6, "cli-postbackup", "pending", "2026-09-22 10:05:00", "2026-09-22 10:05:01", "2026-09-22 10:05:02")
 	output := filepath.Join(filepath.Dir(fixture.faultPath), "from-cli.db")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	command := exec.CommandContext(ctx, "go", "run", "../../../cmd/pricing-restore", "-backup", fixture.backupPath, "-fault", fixture.faultPath, "-out", output)
+	command := exec.CommandContext(ctx, "go", "run", "../../../cmd/pricing-restore", "-backup", selected, "-fault", fixture.faultPath, "-out", output)
 	command.Env = os.Environ()
 	printed, err := command.CombinedOutput()
 	if err != nil || !strings.Contains(string(printed), "replayed inbox rows: 1") {

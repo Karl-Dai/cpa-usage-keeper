@@ -19,7 +19,9 @@ COPY web/static.go ./web/static.go
 ARG VERSION=dev
 RUN CGO_ENABLED=1 GOOS=linux go build \
     -ldflags="-s -w -X cpa-usage-keeper/internal/version.Version=${VERSION}" \
-    -o /out/cpa-usage-keeper ./cmd/server/main.go
+    -o /out/cpa-usage-keeper ./cmd/server/main.go \
+    && CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" \
+    -o /out/pricing-restore ./cmd/pricing-restore
 
 FROM alpine:3.24
 WORKDIR /
@@ -29,6 +31,7 @@ RUN apk add --no-cache ca-certificates tzdata su-exec \
 	&& mkdir -p /data \
 	&& chown -R app:app /data
 COPY --from=go-builder /out/cpa-usage-keeper /app/cpa-usage-keeper
+COPY --from=go-builder /out/pricing-restore /app/pricing-restore
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
 	&& chmod +x /usr/local/bin/docker-entrypoint.sh
