@@ -424,12 +424,15 @@ notepad .env
 
 首次从 V1 升级到 V2 前，先停止 Keeper，独立快照整个 `WORK_DIR`，包括 `app.db` 和可能存在的 SQLite `-wal`/`-shm` 文件。快照应放在 `WORK_DIR/backups` 之外，并保留原 V1 程序或镜像及配置。迁移自动创建的 M1 备份使用日常备份目录，仍受日常备份保留策略清理，不能当作永久回滚快照。
 
-使用默认 Compose 目录时，选择一个尚不存在的快照目录：
+将 `keeper_data_dir` 设为挂载到容器 `/data` 的实际宿主机目录：Keeper 独立部署模板使用 `./data`，CPA + Keeper 联合部署模板使用 `./keeper`。请按部署方式修改下面的值，并选择尚不存在的快照目录。命令使用 `&&` 串联，任何一步失败都不会继续升级：
 
 ```bash
-docker compose stop cpa-usage-keeper
-cp -a ./data ./keeper-v1-snapshot
-docker compose pull cpa-usage-keeper
+keeper_data_dir=./data # CPA + Keeper 联合部署请改为 ./keeper
+test -f "$keeper_data_dir/app.db" &&
+test ! -e ./keeper-v1-snapshot &&
+docker compose stop cpa-usage-keeper &&
+cp -a "$keeper_data_dir" ./keeper-v1-snapshot &&
+docker compose pull cpa-usage-keeper &&
 docker compose up -d --no-deps cpa-usage-keeper
 ```
 
@@ -439,11 +442,11 @@ Keeper 就绪后会在后台检查一次 CPA。只有明确识别为低于 v8.0.
 
 **离线恢复仅适用于尚未完成的旧库迁移**（`pricing_migration_state.data_complete = 0`）。如果迁移已完成、后续启动阶段才失败，也不能使用此方式恢复：正常 inbox 清理可能已经删除所需消息。迁移完成后的回滚应使用独立保留的快照及匹配版本的程序。快照回滚只恢复到快照时刻，不保留快照之后新增的数据。
 
-1. 停止 Keeper 及所有写入数据库的进程。先保留故障 `WORK_DIR`（包括现有 SQLite sidecar）和 M1 备份。
+1. 停止 Keeper 及所有写入数据库的进程。先保留故障 `WORK_DIR`（包括现有 SQLite sidecar）和 M1 备份。后续命令中的 `keeper_data_dir` 应指向该故障数据目录；新开终端时需重新设置。
 2. 找到故障库记录的 M1 `backup_path`。如果装有可选的 SQLite CLI，可只读查看：
 
    ```bash
-   sqlite3 -readonly ./data/app.db \
+   sqlite3 -readonly "$keeper_data_dir/app.db" \
      'SELECT data_complete, backup_path FROM pricing_migration_state WHERE id = 1;'
    ```
 
@@ -453,18 +456,18 @@ Keeper 就绪后会在后台检查一次 CPA。只有明确识别为低于 v8.0.
    mkdir -p ./recovery
    ./pricing-restore \
      -backup /path/to/M1-copy.db \
-     -fault ./data/app.db \
+     -fault "$keeper_data_dir/app.db" \
      -out ./recovery/restored.db
    ```
 
    Windows 使用 `.\pricing-restore.exe`，Homebrew 使用 `pricing-restore`。工具验证已记录的 SHA-256，复制 M1 快照，再按原始 ID 补回备份后接收的 inbox 行并重置为待处理；全部验证通过后才发布新库，两个输入保持原样。带非空 WAL/journal 的备份会被拒绝，应使用原始独立 M1 文件。较早未记录指纹的未完成状态，仍须原记录路径可读，才能与显式副本比对；原身份依据丢失时工具会拒绝猜测。
 
-Docker 恢复时，保持原服务停止。下面按默认目录只读挂载故障数据，并将结果写入单独的恢复目录。将镜像 tag 换成升级时使用的 V2 构建，将示例 M1 路径换成记录的日期和文件名：
+Docker 恢复时，保持原服务停止。将 `keeper_data_dir` 设为前述实际数据目录（独立部署为 `./data`，联合部署为 `./keeper`）。下面只读挂载该目录，并将结果写入单独的恢复目录。将镜像 tag 换成升级时使用的 V2 构建，将示例 M1 路径换成记录的日期和文件名：
 
 ```bash
 mkdir -p ./recovery
 docker run --rm --entrypoint /app/pricing-restore \
-  --mount type=bind,src="$(pwd)/data",dst=/data,readonly \
+  --mount type=bind,src="$(cd -- "$keeper_data_dir" && pwd)",dst=/data,readonly \
   --mount type=bind,src="$(pwd)/recovery",dst=/restore \
   ghcr.io/willxup/cpa-usage-keeper:YOUR_V2_TAG \
   -backup /data/backups/YYYY-MM-DD/database_TIMESTAMP.db \

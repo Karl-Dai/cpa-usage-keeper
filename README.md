@@ -424,12 +424,15 @@ Set `CPA_BASE_URL`, `CPA_MANAGEMENT_KEY`, and a private `LOGIN_PASSWORD` before 
 
 Before the first V1 → V2 upgrade, stop Keeper and take an independent snapshot of the entire `WORK_DIR`, including `app.db` and any SQLite `-wal`/`-shm` files. Keep the snapshot outside `WORK_DIR/backups` and retain the V1 binary/image and configuration. The migration's automatic M1 backup uses the normal backup directory and is subject to daily backup retention; it is not a permanent rollback snapshot.
 
-For the default Compose layout, choose a snapshot directory that does not already exist:
+Set `keeper_data_dir` to the host directory mounted at `/data`: the Keeper-only template uses `./data`, while the CPA + Keeper template uses `./keeper`. Adjust the value below to match your deployment and choose a snapshot directory that does not already exist. The chained commands stop if any step fails:
 
 ```bash
-docker compose stop cpa-usage-keeper
-cp -a ./data ./keeper-v1-snapshot
-docker compose pull cpa-usage-keeper
+keeper_data_dir=./data # CPA + Keeper: use ./keeper instead
+test -f "$keeper_data_dir/app.db" &&
+test ! -e ./keeper-v1-snapshot &&
+docker compose stop cpa-usage-keeper &&
+cp -a "$keeper_data_dir" ./keeper-v1-snapshot &&
+docker compose pull cpa-usage-keeper &&
 docker compose up -d --no-deps cpa-usage-keeper
 ```
 
@@ -439,11 +442,11 @@ If startup fails, inspect the logs and `/api/v1/startup/status` (with `APP_BASE_
 
 **Offline restore is only for an incomplete legacy migration** (`pricing_migration_state.data_complete = 0`). A startup failure after migration has completed is not eligible: normal inbox cleanup may already have removed messages needed for this recovery method. For a completed migration, use an independently retained snapshot and its matching application version instead. A snapshot rollback restores that point in time and does not retain data received after the snapshot.
 
-1. Stop Keeper and every process writing its database. Preserve the failed `WORK_DIR`, including existing SQLite sidecars, and the M1 backup before restoring.
+1. Stop Keeper and every process writing its database. Preserve the failed `WORK_DIR`, including existing SQLite sidecars, and the M1 backup before restoring. In the commands below, `keeper_data_dir` must point to that failed data directory (set it again if using a new shell).
 2. Locate the M1 `backup_path` recorded in the failed database. With the optional SQLite CLI, inspect it read-only:
 
    ```bash
-   sqlite3 -readonly ./data/app.db \
+   sqlite3 -readonly "$keeper_data_dir/app.db" \
      'SELECT data_complete, backup_path FROM pricing_migration_state WHERE id = 1;'
    ```
 
@@ -453,18 +456,18 @@ If startup fails, inspect the logs and `/api/v1/startup/status` (with `APP_BASE_
    mkdir -p ./recovery
    ./pricing-restore \
      -backup /path/to/M1-copy.db \
-     -fault ./data/app.db \
+     -fault "$keeper_data_dir/app.db" \
      -out ./recovery/restored.db
    ```
 
    On Windows use `.\pricing-restore.exe`; with Homebrew use `pricing-restore`. The tool verifies the recorded SHA-256, copies the M1 snapshot, and replays later inbox rows by their original IDs as pending. It publishes the new database only after validation and leaves both inputs unchanged. A backup with a nonempty WAL/journal is rejected: use the original standalone M1 file. For older unfinished states without a recorded fingerprint, the original recorded path must still be readable so the selected copy can be compared; if that evidence is lost, the tool refuses to guess.
 
-For Docker, keep the original service stopped. This default-layout example mounts the failed data read-only and writes only to a separate recovery directory. Replace the image tag with the V2 build used for the upgrade and the example M1 path with the recorded date/file name:
+For Docker, keep the original service stopped. Set `keeper_data_dir` to the same actual data directory as above (`./data` for Keeper-only, `./keeper` for CPA + Keeper). This example mounts it read-only and writes only to a separate recovery directory. Replace the image tag with the V2 build used for the upgrade and the example M1 path with the recorded date/file name:
 
 ```bash
 mkdir -p ./recovery
 docker run --rm --entrypoint /app/pricing-restore \
-  --mount type=bind,src="$(pwd)/data",dst=/data,readonly \
+  --mount type=bind,src="$(cd -- "$keeper_data_dir" && pwd)",dst=/data,readonly \
   --mount type=bind,src="$(pwd)/recovery",dst=/restore \
   ghcr.io/willxup/cpa-usage-keeper:YOUR_V2_TAG \
   -backup /data/backups/YYYY-MM-DD/database_TIMESTAMP.db \
