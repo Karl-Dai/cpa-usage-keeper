@@ -18,6 +18,23 @@ import (
 )
 
 func TestDockerHealthcheckUsesReadinessWithNormalizedBasePath(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "..", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lf := strings.ReplaceAll(string(content), "\r\n", "\n")
+	for _, tc := range []struct{ name, content string }{
+		{"LF", lf},
+		{"CRLF", strings.ReplaceAll(lf, "\n", "\r\n")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testDockerHealthcheck(t, tc.content)
+		})
+	}
+}
+
+func testDockerHealthcheck(t *testing.T, content string) {
+	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
 		t.Skip("Docker healthcheck requires a POSIX shell")
@@ -28,12 +45,10 @@ func TestDockerHealthcheckUsesReadinessWithNormalizedBasePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(probeBin, "wget"), []byte("#!/bin/sh\nfor probe_url do :; done\nprintf '%s' \"$probe_url\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	content, err := os.ReadFile(filepath.Join("..", "..", "..", "Dockerfile"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Windows checkout 可能使用 CRLF；先统一物理换行，再合并 Dockerfile 续行。
+	content = strings.ReplaceAll(content, "\r\n", "\n")
 	var probe string
-	for _, line := range strings.Split(strings.ReplaceAll(string(content), "\\\n", " "), "\n") {
+	for _, line := range strings.Split(strings.ReplaceAll(content, "\\\n", " "), "\n") {
 		if strings.HasPrefix(line, "HEALTHCHECK ") {
 			_, probe, _ = strings.Cut(line, " CMD ")
 		}
