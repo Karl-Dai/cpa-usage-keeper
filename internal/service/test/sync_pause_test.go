@@ -279,7 +279,7 @@ func TestPausedProcessOnceCancellationDoesNotRecordFailure(t *testing.T) {
 }
 
 func usagePauseMessage(requestID string) string {
-	return `{"timestamp":"2026-04-27T08:00:00Z","provider":"codex","auth_type":"oauth","auth_index":"auth-a","model":"gpt-5.5","request_id":"` + requestID + `","tokens":{"input_tokens":10,"output_tokens":2},"response_headers":{"X-Codex-Primary-Used-Percent":["5"],"X-Codex-Primary-Window-Minutes":["300"],"X-Codex-Primary-Reset-After-Seconds":["60"]}}`
+	return `{"timestamp":"2026-04-27T08:00:00Z","provider":"codex","auth_type":"oauth","auth_index":"auth-a","model":"gpt-5.5","execution_id":"fixture-execution","request_id":"` + requestID + `","tokens":{"input_tokens":10,"output_tokens":2},"response_headers":{"X-Codex-Primary-Used-Percent":["5"],"X-Codex-Primary-Window-Minutes":["300"],"X-Codex-Primary-Reset-After-Seconds":["60"]}}`
 }
 
 func awaitPauseSignal[T any](t *testing.T, ch <-chan T) T {

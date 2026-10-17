@@ -39,7 +39,7 @@ func TestSyncPricingUsesNormalizedEventAndCPATime(t *testing.T) {
 	}
 	// 两个 TZ 下都构造部署当地 21:00，证明分支由已存 CPA 时间而非处理时钟选择。
 	when := time.Date(2026, 9, 23, 21, 0, 0, 0, time.Local)
-	message := fmt.Sprintf(`{"timestamp":%q,"api_key":"group-a","model":"unlisted-model","alias":"billable-alias","auth_index":"auth-a","service_tier":"priority","response_service_tier":"fast","reasoning_effort":"high","endpoint":"/v1/responses","executor_type":"CodexExecutor","request_id":"priced-alias","tokens":{"input_tokens":100,"output_tokens":20,"cached_tokens":30,"cache_creation_tokens":10,"total_tokens":120}}`, when.Format(time.RFC3339))
+	message := fmt.Sprintf(`{"timestamp":%q,"api_key":"group-a","model":"unlisted-model","alias":"billable-alias","auth_index":"auth-a","service_tier":"priority","response_service_tier":"fast","reasoning_effort":"high","endpoint":"/v1/responses","executor_type":"CodexExecutor","execution_id":"fixture-execution","request_id":"priced-alias","tokens":{"input_tokens":100,"output_tokens":20,"cached_tokens":30,"cache_creation_tokens":10,"total_tokens":120}}`, when.Format(time.RFC3339))
 	seedRedisInboxMessagesForTest(t, db, message)
 	cache := &recordingRecentUsageAppender{allowed: true}
 	notifier := &recordingUsageAggregationNotifier{}
@@ -80,7 +80,7 @@ func TestSyncPricingChoosesContextBranchAfterClaudeNormalization(t *testing.T) {
 	if _, err := provider.SavePricingModel(context.Background(), config); err != nil {
 		t.Fatal(err)
 	}
-	seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:00:00Z","model":"claude-model","executor_type":"ClaudeExecutor","request_id":"claude-context","tokens":{"input_tokens":80,"output_tokens":20,"cache_read_tokens":30,"cache_creation_tokens":10,"total_tokens":140}}`)
+	seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:00:00Z","model":"claude-model","executor_type":"ClaudeExecutor","execution_id":"fixture-execution","request_id":"claude-context","tokens":{"input_tokens":80,"output_tokens":20,"cache_read_tokens":30,"cache_creation_tokens":10,"total_tokens":140}}`)
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: catalog, UsageAggregationNotifier: &recordingUsageAggregationNotifier{}})
 	if result, err := syncer.ProcessRedisUsageInbox(context.Background()); err != nil || result == nil || result.InsertedEvents != 1 {
 		t.Fatalf("process Claude event: result=%+v err=%v", result, err)
@@ -101,8 +101,8 @@ func TestSyncPricingMissingFreeAndDuplicateMessages(t *testing.T) {
 	if _, err := provider.SavePricingModel(context.Background(), completeServiceConfig("free-model", 0)); err != nil {
 		t.Fatal(err)
 	}
-	missing := `{"timestamp":"2026-09-23T08:00:00Z","model":"missing-model","request_id":"same-request","tokens":{"input_tokens":1000000}}`
-	free := `{"timestamp":"2026-09-23T08:00:00Z","model":"free-model","request_id":"free-request","tokens":{"input_tokens":1000000}}`
+	missing := `{"timestamp":"2026-09-23T08:00:00Z","model":"missing-model","execution_id":"fixture-execution","request_id":"same-request","tokens":{"input_tokens":1000000}}`
+	free := `{"timestamp":"2026-09-23T08:00:00Z","model":"free-model","execution_id":"fixture-execution","request_id":"free-request","tokens":{"input_tokens":1000000}}`
 	rows := seedRedisInboxMessagesForTest(t, db, missing, missing, free)
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: catalog, UsageAggregationNotifier: &recordingUsageAggregationNotifier{}})
 	result, err := syncer.ProcessRedisUsageInbox(context.Background())
@@ -132,7 +132,7 @@ func TestSyncPricingRollbackAndRetry(t *testing.T) {
 	if _, err := provider.SavePricingModel(context.Background(), completeServiceConfig("priced-model", 2)); err != nil {
 		t.Fatal(err)
 	}
-	rows := seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:00:00Z","model":"priced-model","request_id":"retry-price","tokens":{"input_tokens":1000000}}`)
+	rows := seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:00:00Z","model":"priced-model","execution_id":"fixture-execution","request_id":"retry-price","tokens":{"input_tokens":1000000}}`)
 	if err := db.Exec(`CREATE TRIGGER fail_priced_processed BEFORE UPDATE OF status ON redis_usage_inboxes WHEN NEW.status = 'processed' BEGIN SELECT RAISE(ABORT, 'processed mark failed'); END;`).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestSyncPricingSaveDoesNotWaitForCommittedBatch(t *testing.T) {
 	if _, err := provider.SavePricingModel(context.Background(), completeServiceConfig("model-a", 1)); err != nil {
 		t.Fatal(err)
 	}
-	seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:00:00Z","model":"model-a","request_id":"old-price","tokens":{"input_tokens":1000000}}`)
+	seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:00:00Z","model":"model-a","execution_id":"fixture-execution","request_id":"old-price","tokens":{"input_tokens":1000000}}`)
 	appender := &blockingPricedRecentAppender{entered: make(chan struct{}), release: make(chan struct{})}
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(appender.release) }) }
@@ -212,7 +212,7 @@ func TestSyncPricingSaveDoesNotWaitForCommittedBatch(t *testing.T) {
 		t.Fatalf("old-price batch: %v", err)
 	}
 	assertStoredSyncFee(t, loadTokenProcessorSyncEvent(t, db, "old-price"), 1, true)
-	seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:01:00Z","model":"model-a","request_id":"new-price","tokens":{"input_tokens":1000000}}`)
+	seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:01:00Z","model":"model-a","execution_id":"fixture-execution","request_id":"new-price","tokens":{"input_tokens":1000000}}`)
 	nextSyncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{PricingCatalog: catalog, UsageAggregationNotifier: &recordingUsageAggregationNotifier{}})
 	if result, err := nextSyncer.ProcessRedisUsageInbox(context.Background()); err != nil || result == nil || result.InsertedEvents != 1 {
 		t.Fatalf("new-price batch: result=%+v err=%v", result, err)
@@ -223,7 +223,7 @@ func TestSyncPricingSaveDoesNotWaitForCommittedBatch(t *testing.T) {
 // TestSyncPricingRejectsMissingCatalogBeforeConsumingInbox 防止未注入价格依赖时真实事件被写成缺价。
 func TestSyncPricingRejectsMissingCatalogBeforeConsumingInbox(t *testing.T) {
 	db := openUsageServiceTestDatabase(t)
-	rows := seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:00:00Z","model":"model-a","request_id":"missing-catalog","tokens":{"input_tokens":1}}`)
+	rows := seedRedisInboxMessagesForTest(t, db, `{"timestamp":"2026-09-23T08:00:00Z","model":"model-a","execution_id":"fixture-execution","request_id":"missing-catalog","tokens":{"input_tokens":1}}`)
 	syncer := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{})
 	if _, err := syncer.ProcessRedisUsageInbox(context.Background()); err == nil || !strings.Contains(err.Error(), "pricing catalog") {
 		t.Fatalf("missing catalog was accepted: %v", err)
