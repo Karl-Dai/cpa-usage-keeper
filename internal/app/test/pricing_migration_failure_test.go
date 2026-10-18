@@ -86,7 +86,7 @@ func TestLegacyMigrationFailureLogsVerifiedV1Rollback(t *testing.T) {
 				if entry.Level != logrus.WarnLevel {
 					t.Fatalf("unexpected log level: %s", entry.Level)
 				}
-				for _, part := range []string{"v1-to-v2 database migration failed", "stop Keeper v2", "preserve the failed database", "start Keeper v1 with a copy", "Do not open the partially migrated database with v1", "usage received after that point will not be included"} {
+				for _, part := range []string{"v1-to-v2 database migration failed", "stop Keeper v2", "preserve the failed database", "copy the pre-upgrade backup at backup_path", "WORK_DIR as app.db", "start Keeper v1 with that WORK_DIR", "/data/app.db", "Do not open the partially migrated database with v1", "usage received after that point will not be included"} {
 					if !strings.Contains(entry.Message, part) {
 						t.Fatalf("missing %q: %s", part, entry.Message)
 					}

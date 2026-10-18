@@ -30,5 +30,5 @@ func (a *App) logLegacyPricingRollback(ctx context.Context) {
 	if err != nil || fingerprint != baseline.BackupSHA256 {
 		return
 	}
-	logrus.WithField("backup_path", *state.BackupPath).Warn("The v1-to-v2 database migration failed. To roll back, stop Keeper v2, preserve the failed database, and start Keeper v1 with a copy of the pre-upgrade backup at backup_path. Do not open the partially migrated database with v1. Recovery returns data to the backup point; usage received after that point will not be included.")
+	logrus.WithField("backup_path", *state.BackupPath).Warn("The v1-to-v2 database migration failed. To roll back, stop Keeper v2, preserve the failed database, copy the pre-upgrade backup at backup_path to a separate WORK_DIR as app.db, and start Keeper v1 with that WORK_DIR. With the default Docker setup, mount that directory at /data so the restored file is /data/app.db. Do not open the partially migrated database with v1. Recovery returns data to the backup point; usage received after that point will not be included.")
 }
