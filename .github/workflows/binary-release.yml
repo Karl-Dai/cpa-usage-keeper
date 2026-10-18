@@ -356,7 +356,7 @@ jobs:
               if count != 1:
                   raise SystemExit(f"Expected exactly one {arch} URL and checksum")
 
-          path.write_text(content)
+          path.write_text(content, encoding="utf-8", newline="\n")
           PYTHON
 
       - name: Commit and push tap update
