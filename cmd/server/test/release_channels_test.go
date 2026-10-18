@@ -235,9 +235,6 @@ func TestHomebrewReleaseUpdatePreservesFormulaSettings(t *testing.T) {
 					content += fmt.Sprintf("  url \"https://github.com/Willxup/cpa-usage-keeper/releases/download/v1.15.11/cpa-usage-keeper_v1.15.11_darwin_%s.tar.gz\"\n  sha256 \"%s\"\n", arch, strings.Repeat("a", 64))
 				}
 				content += `  bin.install "cpa-usage-keeper"` + "\n"
-				if formula == "cpa-usage-keeper" {
-					content += `  bin.install "pricing-restore"` + "\n"
-				}
 				content += fmt.Sprintf("# Preserve installation and service configuration\nrun [opt_bin/\"cpa-usage-keeper\", \"--env\", etc/\"%s.env\"]\n", formula)
 				originals[formula] = content
 				if err := os.WriteFile(filepath.Join(dir, formula+".rb"), []byte(content), 0o644); err != nil {
