@@ -60,6 +60,7 @@ const resources = {
         progress_known: '{{processed}} of {{total}} records processed',
         progress_label: 'Migration progress',
         failed_next_step: 'Check the service logs, resolve the reported issue, then restart Keeper. Check this page again after it starts.',
+        failed_rollback: 'If a v1-to-v2 upgrade failed, check the service logs for a verified pre-upgrade backup. To return to v1, stop v2, preserve the failed database, and copy that backup to a separate WORK_DIR as app.db before starting v1. Keeper may continue receiving usage until stopped; recovery from the backup excludes all usage received after the backup point.',
         connection_issue: 'Connection interrupted. Retrying the startup check automatically.',
         check_again: 'Check again'
       },
@@ -1007,6 +1008,7 @@ const resources = {
         progress_known: '已处理 {{processed}} / {{total}} 条记录',
         progress_label: '迁移进度',
         failed_next_step: '请查看服务日志并解决所报告的问题，然后重启 Keeper。服务启动后可在此重新检查。',
+        failed_rollback: '如果是 v1 升级 v2 失败，请在服务日志中查找已验证的升级前备份。需要回退时，先停止 v2、保留故障数据库，再将备份复制为独立 WORK_DIR 下的 app.db，并启动 v1。服务停止前可能继续接收用量；从备份恢复不包含备份时点之后收到的用量。',
         connection_issue: '连接中断，正在自动重新检查启动状态。',
         check_again: '立即检查'
       },
@@ -1954,6 +1956,7 @@ const resources = {
         progress_known: '已處理 {{processed}} / {{total}} 筆記錄',
         progress_label: '遷移進度',
         failed_next_step: '請查看服務日誌並解決所報告的問題，然後重新啟動 Keeper。服務啟動後可在此重新檢查。',
+        failed_rollback: '如果是 v1 升級 v2 失敗，請在服務日誌中查找已驗證的升級前備份。需要回退時，先停止 v2、保留故障資料庫，再將備份複製為獨立 WORK_DIR 下的 app.db，並啟動 v1。服務停止前可能繼續接收用量；從備份恢復不包含備份時點之後收到的用量。',
         connection_issue: '連線中斷，正在自動重新檢查啟動狀態。',
         check_again: '立即檢查'
       },
