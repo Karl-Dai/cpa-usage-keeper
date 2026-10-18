@@ -1,9 +1,10 @@
 name: Publish release binaries
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
 
 permissions:
   contents: write
@@ -234,6 +235,7 @@ jobs:
       - name: Download binary package artifacts
         uses: actions/download-artifact@v6
         with:
+          pattern: cpa-usage-keeper-${{ github.ref_name }}-*
           path: dist
           merge-multiple: true
 
@@ -258,6 +260,7 @@ jobs:
       - name: Download binary package artifacts
         uses: actions/download-artifact@v6
         with:
+          pattern: cpa-usage-keeper-${{ github.ref_name }}-*
           path: dist
           merge-multiple: true
 
