@@ -283,7 +283,7 @@ func TestRestorePricingBackupProcessesDuplicateContentOncePerOriginalID(t *testi
 	if err := fault.Exec("UPDATE pricing_migration_state SET backup_path=?, baseline_json=? WHERE id=1", backupPath, `{"schema_version":1,"inbox_max_id":0}`).Error; err != nil {
 		t.Fatal(err)
 	}
-	message := `{"timestamp":"2026-09-22T08:00:00Z","provider":"claude","model":"sonnet","request_id":"restore-duplicate","tokens":{"input_tokens":1,"output_tokens":2}}`
+	message := `{"timestamp":"2026-09-22T08:00:00Z","provider":"claude","model":"sonnet","execution_id":"fixture-execution","request_id":"restore-duplicate","tokens":{"input_tokens":1,"output_tokens":2}}`
 	catalog := pricing.NewCatalog(pricing.EmptySnapshot())
 	syncer := service.NewSyncServiceWithOptions(fault, service.SyncServiceOptions{PricingCatalog: catalog, BaseURL: "https://cpa.example.com"})
 	firstRows, err := repository.InsertRedisUsageInboxRawMessages(fault, "redis_pull:usage", []string{message}, time.Now())

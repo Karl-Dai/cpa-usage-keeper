@@ -101,6 +101,8 @@ const (
 	migrationRemoveRanking              = "20261009_remove_ranking"
 	// migrationAddUsageEventTraceMetadata 只保存上游提供的执行与节点元数据，历史行保持 NULL。
 	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
+	// migrationRecoverExecutionUsageEvents 以短事务回填事件标识并重新排队旧入口误拒绝的执行消息。
+	migrationRecoverExecutionUsageEvents = "20261018_recover_execution_usage_events"
 )
 
 type schemaMigration struct {
@@ -194,7 +196,7 @@ func RunPricingStorageStructure(db *gorm.DB) error {
 	return runSchemaMigration(db, migrations[boundary])
 }
 
-// pricingStorageMigrationBoundary 定位固定费用版本；main 的新增迁移必须注册在它之前。
+// pricingStorageMigrationBoundary 定位固定费用版本；后续恢复迁移在完整迁移阶段执行。
 func pricingStorageMigrationBoundary(migrations []databaseMigration) (int, error) {
 	for index, item := range migrations {
 		if item.version == migrationAddPricingStorageStructure {
@@ -313,6 +315,8 @@ func orderedMigrations() []databaseMigration {
 		// 费用结构只在全部已发布旧迁移之后增列，旧数据回填由后续启动阶段控制。
 		{version: migrationAddPricingStorageStructure, run: addPricingStorageStructureMigration},
 		{version: migrationRemoveRanking, run: removeRankingMigration},
+		// 恢复迁移追加在 v2 既有迁移之后，保留已部署 next 的执行顺序。
+		{version: migrationRecoverExecutionUsageEvents, run: recoverExecutionUsageEventsMigration, disableTransaction: true},
 	}
 }
 

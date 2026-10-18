@@ -441,7 +441,7 @@ func startPricingInboxReceiver(ctx context.Context, writer *gorm.DB, anchor time
 		defer func() { producerDone <- stats }()
 		for sequence := int64(1); ; sequence++ {
 			// 时间戳接近数据锚点，消息本身只存在于该测试进程和持久 inbox 中。
-			raw := fmt.Sprintf(`{"timestamp":%q,"provider":"codex","api_key":"bench-key-001","model":"bench-model-001","request_id":"pricingbench-live-%d","tokens":{"input_tokens":100,"output_tokens":20}}`, anchor.Add(-10*time.Minute).Format(time.RFC3339Nano), sequence)
+			raw := fmt.Sprintf(`{"timestamp":%q,"provider":"codex","api_key":"bench-key-001","model":"bench-model-001","execution_id":"pricingbench-execution-%d","request_id":"pricingbench-live-%d","tokens":{"input_tokens":100,"output_tokens":20}}`, anchor.Add(-10*time.Minute).Format(time.RFC3339Nano), sequence, sequence)
 			stats.offered++
 			select {
 			case offers <- pricingInboxOffer{raw: raw, offeredAt: time.Now()}:

@@ -18,6 +18,7 @@ type restoreReleaseWorkflow struct {
 	} `yaml:"jobs"`
 }
 
+// Homebrew 更新器不再生成安装方法，其实际执行及安装声明保留由 server/test/release_channels_test.go 覆盖。
 // 发行契约跨 stable/dev 和全部平台，防止只修一个发布路径导致用户拿不到离线恢复工具。
 func TestReleasePackagesIncludeRestoreToolForEveryPlatform(t *testing.T) {
 	for _, tc := range []struct{ file, prefix string }{
@@ -66,11 +67,6 @@ func TestReleasePackagesIncludeRestoreToolForEveryPlatform(t *testing.T) {
 					t.Fatal("release archive does not build a restore tool in its package directory")
 				}
 			})
-		}
-		if tc.file == "binary-release.yml" {
-			if !strings.Contains(string(content), `bin.install "cpa-usage-keeper", "pricing-restore"`) {
-				t.Fatal("generated Homebrew formula does not install restore tool")
-			}
 		}
 	}
 }
