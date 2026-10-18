@@ -127,12 +127,16 @@ func TestOverviewReadersMapLegacyMidnightKeyWithoutRewriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertFloatClose(t, overview.Series.RPM["2026-09-06"], 2.0/(23*60))
 	if overview.Series.Tokens["2026-09-06"] != 100 || len(overview.Series.Tokens) != 1 {
 		t.Fatalf("unexpected day series: %+v", overview.Series)
 	}
 	comparison, err := repository.BuildUsageOverviewComparisonsWithFilterAndRecentCache(db, filter, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(comparison.Comparisons.Buckets) != 1 || comparison.Comparisons.Buckets[0] != "2026-09-06" {
+		t.Fatalf("wrong comparison date enumeration: %+v", comparison.Comparisons.Buckets)
 	}
 	model := comparison.Comparisons.Models["model"]
 	if model == nil || model.TotalTokens != 100 || model.TokenBuckets["2026-09-06"] != 100 || len(model.TokenBuckets) != 1 {

@@ -1081,11 +1081,13 @@ func usageOverviewFullHourWindow(start, end time.Time) (time.Time, time.Time) {
 func usageOverviewFullDayWindow(start, end time.Time) (time.Time, time.Time) {
 	start = timeutil.NormalizeStorageTime(start)
 	end = timeutil.NormalizeStorageTime(end)
-	fullStart := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+	startDay, _ := timeutil.DayBounds(timeutil.DateOf(start), start.Location())
+	endDay, _ := timeutil.DayBounds(timeutil.DateOf(end), end.Location())
+	fullStart := startDay.Start
 	if !start.Equal(fullStart) {
-		fullStart = fullStart.AddDate(0, 0, 1)
+		fullStart = startDay.End
 	}
-	fullEnd := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
+	fullEnd := endDay.Start
 	if fullEnd.Before(fullStart) {
 		fullEnd = fullStart
 	}
@@ -2045,11 +2047,14 @@ func finalizeUsageOverviewSeries(series *dto.UsageOverviewSeriesRecord) {
 	}
 }
 
-func usageOverviewSeriesBucketMinutes(bucketKey string) int64 {
-	if len(bucketKey) == len(time.DateOnly) {
-		return usageOverviewDailyAverageDayMinutes
+func usageOverviewSeriesBucketMinutes(bucketKey string) float64 {
+	if date, err := timeutil.ParseCivilDate(bucketKey); err == nil {
+		if bounds, exists := timeutil.DayBounds(date, time.Local); exists {
+			return bounds.Minutes()
+		}
+		return float64(usageOverviewDailyAverageDayMinutes)
 	}
-	return int64(time.Hour / time.Minute)
+	return float64(time.Hour / time.Minute)
 }
 
 func usageOverviewFloat64Ptr(value float64) *float64 {
