@@ -387,7 +387,7 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 		return nil, fmt.Errorf("analysis requires start_time and end_time")
 	}
 	windowMinutes := computeWindowMinutes(filter)
-	bucketByDay := windowMinutes > 24*60
+	bucketByDay := windowMinutes > 24*60 && filter.Range != "today" && filter.Range != "yesterday"
 	if strings.TrimSpace(filter.Range) == "custom" {
 		// Custom 显式粒度与 Overview 保持一致，不能用单日跨度反推 hourly。
 		switch strings.TrimSpace(filter.CustomUnit) {
@@ -455,9 +455,9 @@ func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.Ana
 func analysisRollingDayWindow(start, end time.Time) (time.Time, time.Time) {
 	localStart := timeutil.NormalizeStorageTime(start)
 	localEnd := timeutil.NormalizeStorageTime(end)
-	windowStart := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, localStart.Location())
-	windowEnd := time.Date(localEnd.Year(), localEnd.Month(), localEnd.Day(), 0, 0, 0, 0, localEnd.Location()).AddDate(0, 0, 1)
-	return windowStart, windowEnd
+	startDay, _ := timeutil.DayBounds(timeutil.DateOf(localStart), localStart.Location())
+	endDay, _ := timeutil.DayBounds(timeutil.DateOf(localEnd), localEnd.Location())
+	return startDay.Start, endDay.End
 }
 
 func analysisHourlyStatsEnd(filter dto.UsageQueryFilter, fullEnd time.Time) time.Time {
@@ -475,8 +475,9 @@ func analysisHourlyStatsEnd(filter dto.UsageQueryFilter, fullEnd time.Time) time
 	default:
 		return fullEnd
 	}
-	start := timeutil.NormalizeStorageTime(*filter.StartTime).Truncate(time.Hour)
-	dayBoundaryEnd := start.Add(24 * time.Hour)
+	start := timeutil.NormalizeStorageTime(*filter.StartTime)
+	bounds, _ := timeutil.DayBounds(timeutil.DateOf(start), start.Location())
+	dayBoundaryEnd := bounds.End
 	if dayBoundaryEnd.After(fullEnd) {
 		return dayBoundaryEnd
 	}
@@ -713,14 +714,15 @@ func fillAnalysisFullDayHourlyBuckets(record *dto.AnalysisRecord, filter dto.Usa
 	if filter.Range != "today" && filter.Range != "yesterday" {
 		return
 	}
-	start := timeutil.NormalizeStorageTime(*filter.StartTime).Truncate(time.Hour)
+	localStart := timeutil.NormalizeStorageTime(*filter.StartTime)
+	bounds, _ := timeutil.DayBounds(timeutil.DateOf(localStart), localStart.Location())
+	start := localStart.Truncate(time.Hour)
 	bucketByTime := make(map[time.Time]dto.AnalysisTokenUsageBucketRecord, len(record.TokenUsage)+24)
 	for _, bucket := range record.TokenUsage {
 		bucketByTime[timeutil.NormalizeStorageTime(bucket.Bucket).Truncate(time.Hour)] = bucket
 	}
 	record.TokenUsage = record.TokenUsage[:0]
-	for hour := 0; hour <= 24; hour++ {
-		bucketTime := start.Add(time.Duration(hour) * time.Hour)
+	for bucketTime := start; !bucketTime.After(bounds.End); bucketTime = bucketTime.Add(time.Hour) {
 		bucket, ok := bucketByTime[bucketTime]
 		if !ok {
 			bucket = dto.AnalysisTokenUsageBucketRecord{Bucket: bucketTime, CostAvailable: true}

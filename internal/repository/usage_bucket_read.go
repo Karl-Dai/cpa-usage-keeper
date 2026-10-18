@@ -60,3 +60,30 @@ func (b usageBucketRead) displayStart(stored time.Time) time.Time {
 	}
 	return timeutil.NormalizeStorageTime(stored)
 }
+
+func latencyBucketRead(start, end time.Time, bucketType entities.UsageLatencyBucketType) usageBucketRead {
+	if bucketType == entities.UsageLatencyBucketDay {
+		// 两个数据源的旧日桶均为 time.Date(年月日, 00:00, location)。
+		return overviewBucketRead(start, end, "daily")
+	}
+	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
+	result := usageBucketRead{}
+	seen := make(map[string]bool)
+	for cursor := start; cursor.Before(end); {
+		// 与 Latency 既有写入一致，按当地钟面减去分秒。切换点可能在半小时，
+		// 因此跨 timezone segment 时重新取整，不能沿首个 offset 一直加小时。
+		at := cursor.Add(-time.Duration(cursor.Minute())*time.Minute - time.Duration(cursor.Second())*time.Second - time.Duration(cursor.Nanosecond()))
+		key := timeutil.FormatStorageTime(at)
+		if !at.Before(start) && !seen[key] {
+			result.keys = append(result.keys, key)
+			seen[key] = true
+		}
+		next := at.Add(time.Hour)
+		_, segmentEnd := cursor.ZoneBounds()
+		if !segmentEnd.IsZero() && segmentEnd.Before(next) {
+			next = segmentEnd
+		}
+		cursor = next
+	}
+	return result
+}
