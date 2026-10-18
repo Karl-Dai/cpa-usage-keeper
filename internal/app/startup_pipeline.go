@@ -67,9 +67,11 @@ func (a *App) Initialize(ctx context.Context) error {
 		if !state.DataComplete {
 			baseline, err := repository.MigrateLegacyPricingEvents(ctx, db, reader, a.Config.BackupDir, time.Now())
 			if err != nil {
+				a.logLegacyPricingRollback(ctx)
 				return fmt.Errorf("migrate legacy pricing events: %w", err)
 			}
 			if err := repository.CompleteLegacyPricingData(ctx, db, reader, baseline); err != nil {
+				a.logLegacyPricingRollback(ctx)
 				return fmt.Errorf("complete legacy pricing data: %w", err)
 			}
 		}
