@@ -68,14 +68,20 @@ describe('StartupGate', () => {
     await render()
     expect(container.querySelector('[data-business]')).toBeNull()
     expect(container.textContent).toContain('Preparing Keeper')
+    expect(container.textContent).not.toContain('To return to v1')
     expect(container.querySelector('.app-frame')?.getAttribute('data-embed')).toBe('cpamc')
     expect(window.location.pathname + window.location.search).toBe('/cpa/analysis?embed=cpamc')
 
     await nextPoll()
     expect(container.textContent).toContain('7 records processed')
+    expect(container.textContent).not.toContain('To return to v1')
     expect(container.querySelector('[role="progressbar"]')).toBeNull()
     await nextPoll()
     expect(container.textContent).toContain('Check the service logs')
+    expect(container.textContent).toContain('If a v1-to-v2 upgrade failed')
+    expect(container.textContent).toContain('separate WORK_DIR as app.db')
+    expect(container.textContent).toContain('may continue receiving usage until stopped')
+    expect(container.textContent).toContain('excludes all usage received after the backup point')
     expect(container.querySelector('[data-business]')).toBeNull()
     await nextPoll()
     expect(container.querySelector('[data-business]')).not.toBeNull()
@@ -91,6 +97,20 @@ describe('StartupGate', () => {
     expect(container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('25')
     await act(async () => { await i18n.changeLanguage('zh') })
     expect(container.textContent).toContain('已处理 1 / 4 条记录')
+  })
+
+  it.each([
+    ['zh', '如果是 v1 升级 v2 失败', '先停止 v2', '备份时点之后'],
+    ['zh-TW', '如果是 v1 升級 v2 失敗', '先停止 v2', '備份時點之後'],
+  ])('shows conditional rollback guidance in %s without changing retry', async (language, condition, stop, loss) => {
+    await i18n.changeLanguage(language)
+    startup.getStartupStatus.mockResolvedValueOnce(state('failed')).mockResolvedValueOnce(state('ready'))
+    await render()
+    for (const text of [condition, stop, loss, 'WORK_DIR', 'app.db']) {
+      expect(container.textContent).toContain(text)
+    }
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-keeper-page="startup"] button.btn')!.click())
+    expect(container.querySelector('[data-business]')).not.toBeNull()
   })
 
   it.each(['migrating', 'failed'] as const)('notifies the CPAMC parent while still %s', async (phase) => {
