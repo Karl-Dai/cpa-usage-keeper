@@ -15,11 +15,16 @@ import (
 type usageBucketRead struct {
 	keys          []string
 	displayStarts map[int64]time.Time
+	start, end    time.Time
+	stableOffset  bool
 }
 
 func overviewBucketRead(start, end time.Time, grain string) usageBucketRead {
 	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
-	result := usageBucketRead{displayStarts: make(map[int64]time.Time)}
+	result := usageBucketRead{displayStarts: make(map[int64]time.Time), start: start, end: end, stableOffset: usageReadHasStableOffset(start, end)}
+	if result.stableOffset {
+		return result
+	}
 	if grain == "daily" {
 		for date := timeutil.DateOf(start); ; date = date.AddDays(1) {
 			bounds, exists := timeutil.DayBounds(date, start.Location())
@@ -49,9 +54,20 @@ func overviewBucketRead(start, end time.Time, grain string) usageBucketRead {
 }
 
 func (b usageBucketRead) query(query *gorm.DB) *gorm.DB {
+	if b.stableOffset {
+		// 普通区间保留原索引范围和旧行兼容性（包括历史非标准桶键），上海读数不变。
+		return query.Where("bucket_start >= ? AND bucket_start < ?", timeutil.FormatStorageTime(b.start), timeutil.FormatStorageTime(b.end))
+	}
 	// 页面范围有界（小时至多跨 DST 日、日 <=365）；IN 使用既有 bucket_start 索引，
 	// 不对时间列套函数，也不依赖含 offset 字符串的大小顺序。
 	return query.Where("bucket_start IN ?", b.keys)
+}
+
+// 两侧保留两日，避免范围自身 offset 相同、却落在回拨的重复钟面附近。
+// 没有转换的单一区段中，既有本地时间文本顺序与时间顺序一致。
+func usageReadHasStableOffset(start, end time.Time) bool {
+	_, transition := timeutil.NormalizeStorageTime(start.Add(-48 * time.Hour)).ZoneBounds()
+	return transition.IsZero() || transition.After(end.Add(48*time.Hour))
 }
 
 func (b usageBucketRead) displayStart(stored time.Time) time.Time {
@@ -67,7 +83,10 @@ func latencyBucketRead(start, end time.Time, bucketType entities.UsageLatencyBuc
 		return overviewBucketRead(start, end, "daily")
 	}
 	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
-	result := usageBucketRead{}
+	result := usageBucketRead{start: start, end: end, stableOffset: usageReadHasStableOffset(start, end)}
+	if result.stableOffset {
+		return result
+	}
 	seen := make(map[string]bool)
 	for cursor := start; cursor.Before(end); {
 		// 与 Latency 既有写入一致，按当地钟面减去分秒。切换点可能在半小时，
