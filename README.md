@@ -506,6 +506,16 @@ Keeper archives raw request records older than 90 local calendar days daily at 0
 
 When file logging is enabled, `cpa-usage-keeper-YYYY-MM-DD.log` contains all emitted levels. Error, fatal, and panic entries are also copied to `cpa-usage-keeper-error-YYYY-MM-DD.log`, which keeps the previous 30 local calendar dates plus the current date.
 
+### Rolling Back A Failed v1-to-v2 Upgrade
+
+Keeper creates a database backup before migrating v1 data. If migration fails and that backup is verified, the logs include English rollback instructions and its `backup_path`.
+
+1. Stop Keeper v2 and preserve the failed database together with any `-wal` and `-shm` files.
+2. Copy the pre-upgrade backup into a separate data directory. Keep the original backup intact; do not mix the copy with files from the failed database.
+3. Install Keeper v1 and configure it to use that restored copy. Do not open the partially migrated database with v1.
+
+This returns data to the backup point. Usage received afterward is not included. If no verified backup is available, locate and validate a known pre-upgrade backup before attempting rollback.
+
 ### Built-In HTTPS
 
 | Variable | Required | Default | Description |
