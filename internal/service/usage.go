@@ -159,7 +159,9 @@ func (s *usageService) GetUsageActivity(ctx context.Context, filter servicedto.U
 			return nil, fmt.Errorf("activity calendar window %q requires start time", filter.ActivityWindow)
 		}
 		// Today/Yesterday 只改变网格终点，仍复用普通 Activity 聚合查询。
-		referenceEnd = filter.StartTime.AddDate(0, 0, 1)
+		localStart := timeutil.NormalizeStorageTime(*filter.StartTime)
+		bounds, _ := timeutil.DayBounds(timeutil.DateOf(localStart), localStart.Location())
+		referenceEnd = bounds.End
 	}
 	grid, err := repository.QueryUsageActivityGrid(ctx, s.db, grain, referenceEnd, dataEnd, apiGroupKey)
 	if err != nil {
