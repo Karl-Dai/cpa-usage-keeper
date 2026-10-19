@@ -1275,32 +1275,52 @@ func loadUsageOverviewRealtimeEventRangeWithFilter(db *gorm.DB, filter dto.Usage
 	return loadUsageOverviewEventRangeWithProjection(db, filter, start, end, includeEnd, usageOverviewRealtimeEventProjectionColumns)
 }
 
-// loadUsageOverviewEventRangeWithProjection 使用单段 timestamp 范围查询，避免 OR 影响 usage_events 时间索引。
+// loadUsageOverviewEventRangeWithProjection 按时区区段读取原有窄窗口，每段仍使用 timestamp 索引范围。
 func loadUsageOverviewEventRangeWithProjection(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, includeEnd bool, projection string) ([]entities.UsageEvent, error) {
 	if end.Before(start) || (!includeEnd && end.Equal(start)) {
 		return nil, nil
 	}
-	// 单段范围让 SQLite 可以稳定使用 timestamp 索引，不把左右边界拼成 OR 查询。
-	query := db.Model(&entities.UsageEvent{}).
-		Where("timestamp >= ?", timeutil.FormatStorageTime(start)).
-		Select(projection).
-		Order("timestamp asc")
-	if includeEnd {
-		query = query.Where("timestamp <= ?", timeutil.FormatStorageTime(end))
-	} else {
-		query = query.Where("timestamp < ?", timeutil.FormatStorageTime(end))
+	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
+	events := make([]entities.UsageEvent, 0)
+	for cursor := start; cursor.Before(end) || (includeEnd && cursor.Equal(end)); {
+		_, offset := cursor.Zone()
+		_, zoneEnd := cursor.ZoneBounds()
+		segmentEnd, closed := end, includeEnd
+		if !zoneEnd.IsZero() && !zoneEnd.After(end) {
+			segmentEnd, closed = zoneEnd, false
+		}
+		// 上界必须以该段 offset 表达。回拨时转换点的“新钟面”不能作旧段上界；
+		// suffix 排除另一 offset 的同名小时，不能对整列调用 datetime/strftime。
+		zone := time.FixedZone("", offset)
+		lower := cursor.In(zone).Format(time.RFC3339Nano)
+		upper := segmentEnd.In(zone).Format(time.RFC3339Nano)
+		query := db.Model(&entities.UsageEvent{}).Select(projection).
+			Where("timestamp >= ?", lower).
+			Order("timestamp asc")
+		if closed {
+			query = query.Where("timestamp <= ?", upper)
+		} else {
+			query = query.Where("timestamp < ?", upper)
+		}
+		if !usageReadHasStableOffset(start, end) {
+			query = query.Where("timestamp LIKE ?", "%"+cursor.In(zone).Format("Z07:00"))
+		}
+		if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
+			query = query.Where("api_group_key = ?", apiGroupKey)
+		}
+		var rows []usageEventProjection
+		if err := query.Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("load usage overview boundary event range: %w", err)
+		}
+		for _, row := range rows {
+			events = append(events, usageEventProjectionToEntity(row))
+		}
+		if closed || segmentEnd.Equal(end) && !includeEnd {
+			break
+		}
+		cursor = segmentEnd
 	}
-	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
-		query = query.Where("api_group_key = ?", apiGroupKey)
-	}
-	var rows []usageEventProjection
-	if err := query.Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("load usage overview boundary event range: %w", err)
-	}
-	events := make([]entities.UsageEvent, 0, len(rows))
-	for _, row := range rows {
-		events = append(events, usageEventProjectionToEntity(row))
-	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].Timestamp.Before(events[j].Timestamp) })
 	return events, nil
 }
 
