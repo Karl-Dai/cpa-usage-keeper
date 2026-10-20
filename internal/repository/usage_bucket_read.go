@@ -66,7 +66,7 @@ func (b usageBucketRead) query(query *gorm.DB) *gorm.DB {
 // 两侧保留两日，避免范围自身 offset 相同、却落在回拨的重复钟面附近。
 // 没有转换的单一区段中，既有本地时间文本顺序与时间顺序一致。
 func usageReadHasStableOffset(start, end time.Time) bool {
-	_, transition := timeutil.NormalizeStorageTime(start.Add(-48 * time.Hour)).ZoneBounds()
+	transition := timeutil.ZoneSegmentEnd(timeutil.NormalizeStorageTime(start.Add(-48 * time.Hour)))
 	return transition.IsZero() || transition.After(end.Add(48*time.Hour))
 }
 
@@ -98,7 +98,7 @@ func latencyBucketRead(start, end time.Time, bucketType entities.UsageLatencyBuc
 			seen[key] = true
 		}
 		next := at.Add(time.Hour)
-		_, segmentEnd := cursor.ZoneBounds()
+		segmentEnd := timeutil.ZoneSegmentEnd(cursor)
 		if !segmentEnd.IsZero() && segmentEnd.Before(next) {
 			next = segmentEnd
 		}

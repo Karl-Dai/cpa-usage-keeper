@@ -1284,7 +1284,7 @@ func loadUsageOverviewEventRangeWithProjection(db *gorm.DB, filter dto.UsageQuer
 	events := make([]entities.UsageEvent, 0)
 	for cursor := start; cursor.Before(end) || (includeEnd && cursor.Equal(end)); {
 		_, offset := cursor.Zone()
-		_, zoneEnd := cursor.ZoneBounds()
+		zoneEnd := timeutil.ZoneSegmentEnd(cursor)
 		segmentEnd, closed := end, includeEnd
 		if !zoneEnd.IsZero() && !zoneEnd.After(end) {
 			segmentEnd, closed = zoneEnd, false

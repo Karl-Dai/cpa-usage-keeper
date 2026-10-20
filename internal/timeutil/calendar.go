@@ -46,6 +46,24 @@ func ElapsedRange(anchor time.Time, duration time.Duration) Interval {
 	return Interval{Start: anchor.Add(-duration), End: anchor}
 }
 
+// ZoneSegmentEnd 保留 ZoneBounds 的真实转换边界，并修正 Go POSIX TZ
+// 延伸规则将闰年末尾按 365 天计算的边界。该分支已在当年最后一次转换后，
+// 因此只补齐到下一 UTC 年起点，再由下一次查询读取后续规则。
+func ZoneSegmentEnd(at time.Time) time.Time {
+	_, end := at.ZoneBounds()
+	if end.IsZero() || end.After(at) {
+		return end
+	}
+	year := at.UTC().Year()
+	start := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+	next := start.AddDate(1, 0, 0)
+	shortEnd := start.Add(365 * 24 * time.Hour)
+	if shortEnd.Before(next) && end.Equal(shortEnd) {
+		return next.In(at.Location())
+	}
+	return end
+}
+
 // DayBounds 按时区转换区段求某日期的真实范围，避免 time.Date 对不存在/重复午夜的歧义。
 // UTC 仅作年月日坐标；每段按当时的实际 offset 映射，结果仍返回调用方时区。
 // IANA 日期变更最多跨一个整日；两侧各留两日覆盖其 offset 和整日跳过，不逐秒搜索。
@@ -58,7 +76,7 @@ func DayBounds(date CivilDate, location *time.Location) (Interval, bool) {
 	for cursor := nominalStart.Add(-48 * time.Hour); cursor.Before(searchEnd); {
 		local := cursor.In(location)
 		_, offset := local.Zone()
-		_, segmentEnd := local.ZoneBounds()
+		segmentEnd := ZoneSegmentEnd(local)
 		if segmentEnd.IsZero() || segmentEnd.After(searchEnd) {
 			segmentEnd = searchEnd
 		}
