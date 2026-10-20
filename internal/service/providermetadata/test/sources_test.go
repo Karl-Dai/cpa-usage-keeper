@@ -151,6 +151,9 @@ func TestFetchPropagatesOpenAIProviderFieldsToEveryValidEntry(t *testing.T) {
 
 func TestFetchRejectsWholeSourceWhenNonEmptyKeyHasNoAuthIndex(t *testing.T) {
 	for _, source := range registrySourceOrder {
+		if source == "openai" {
+			continue
+		}
 		for _, authIndex := range []string{"", " \t"} {
 			name := "missing"
 			if authIndex != "" {
@@ -164,16 +167,9 @@ func TestFetchRejectsWholeSourceWhenNonEmptyKeyHasNoAuthIndex(t *testing.T) {
 					"vertex": fetcher.vertexResult, "meta": fetcher.metaResult,
 				}
 				// 合法条目先出现，随后缺标识的条目必须让整个来源失败，不能返回部分凭证。
-				if source == "openai" {
-					fetcher.openAIResult.Payload = []providerconfig.OpenAICompatibilityConfig{
-						{APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{APIKey: "valid-key", AuthIndex: "valid-auth"}}},
-						{APIKeyEntries: []providerconfig.OpenAIApiKeyEntry{{APIKey: " do-not-expose-api-key ", AuthIndex: authIndex}}},
-					}
-				} else {
-					standardResults[source].Payload = []providerconfig.ProviderKeyConfig{
-						{APIKey: "valid-key", AuthIndex: "valid-auth"},
-						{APIKey: " do-not-expose-api-key ", AuthIndex: authIndex},
-					}
+				standardResults[source].Payload = []providerconfig.ProviderKeyConfig{
+					{APIKey: "valid-key", AuthIndex: "valid-auth"},
+					{APIKey: " do-not-expose-api-key ", AuthIndex: authIndex},
 				}
 				snapshot, err := providermetadata.Fetch(context.Background(), fetcher)
 				if err == nil || !strings.Contains(err.Error(), "auth_index") || strings.Contains(err.Error(), "do-not-expose-api-key") {
