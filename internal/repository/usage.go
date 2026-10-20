@@ -1277,42 +1277,13 @@ func loadUsageOverviewRealtimeEventRangeWithFilter(db *gorm.DB, filter dto.Usage
 
 // loadUsageOverviewEventRangeWithProjection 按时区区段读取原有窄窗口，每段仍使用 timestamp 索引范围。
 func loadUsageOverviewEventRangeWithProjection(db *gorm.DB, filter dto.UsageQueryFilter, start, end time.Time, includeEnd bool, projection string) ([]entities.UsageEvent, error) {
-	if end.Before(start) || (!includeEnd && end.Equal(start)) {
+	reads := usageEventTimeReads(start, end, includeEnd)
+	if len(reads) == 0 {
 		return nil, nil
 	}
-	start, end = timeutil.NormalizeStorageTime(start), timeutil.NormalizeStorageTime(end)
 	events := make([]entities.UsageEvent, 0)
-	for cursor := start; cursor.Before(end) || (includeEnd && cursor.Equal(end)); {
-		_, offset := cursor.Zone()
-		zoneEnd := timeutil.ZoneSegmentEnd(cursor)
-		segmentEnd, closed := end, includeEnd
-		if !zoneEnd.IsZero() && !zoneEnd.After(end) {
-			segmentEnd, closed = zoneEnd, false
-		}
-		// 上界必须以该段 offset 表达。回拨时转换点的“新钟面”不能作旧段上界；
-		// suffix 排除另一 offset 的同名小时，不能对整列调用 datetime/strftime。
-		zone := time.FixedZone("", offset)
-		lower := cursor.In(zone).Format(time.RFC3339Nano)
-		upper := segmentEnd.In(zone).Format(time.RFC3339Nano)
-		query := db.Model(&entities.UsageEvent{}).Select(projection).Order("timestamp asc")
-		if offset == 0 {
-			// RFC3339 的 Z 排在小数点之后，整秒/亚秒文本不能直接比较。
-			// 用不含后缀的整秒前缀覆盖边界秒，仍走索引；下方按真实时间裁剪。
-			const secondPrefix = "2006-01-02T15:04:05"
-			lower = cursor.In(zone).Format(secondPrefix)
-			upper = segmentEnd.In(zone).Truncate(time.Second).Add(time.Second).Format(secondPrefix)
-			query = query.Where("timestamp >= ? AND timestamp < ?", lower, upper)
-		} else {
-			query = query.Where("timestamp >= ?", lower)
-			if closed {
-				query = query.Where("timestamp <= ?", upper)
-			} else {
-				query = query.Where("timestamp < ?", upper)
-			}
-		}
-		if !usageReadHasStableOffset(start, end) {
-			query = query.Where("timestamp LIKE ?", "%"+cursor.In(zone).Format("Z07:00"))
-		}
+	for _, read := range reads {
+		query := read.query(db.Model(&entities.UsageEvent{}).Select(projection)).Order("timestamp asc")
 		if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 			query = query.Where("api_group_key = ?", apiGroupKey)
 		}
@@ -1322,15 +1293,10 @@ func loadUsageOverviewEventRangeWithProjection(db *gorm.DB, filter dto.UsageQuer
 		}
 		for _, row := range rows {
 			event := usageEventProjectionToEntity(row)
-			if offset == 0 && (event.Timestamp.Before(cursor) || event.Timestamp.After(segmentEnd) || (!closed && event.Timestamp.Equal(segmentEnd))) {
-				continue
+			if read.contains(event.Timestamp) {
+				events = append(events, event)
 			}
-			events = append(events, event)
 		}
-		if closed || segmentEnd.Equal(end) && !includeEnd {
-			break
-		}
-		cursor = segmentEnd
 	}
 	sort.SliceStable(events, func(i, j int) bool { return events[i].Timestamp.Before(events[j].Timestamp) })
 	return events, nil
