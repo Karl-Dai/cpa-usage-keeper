@@ -149,6 +149,54 @@ func TestFetchPropagatesOpenAIProviderFieldsToEveryValidEntry(t *testing.T) {
 	}
 }
 
+func TestFetchFiltersIncompleteOpenAIEntries(t *testing.T) {
+	for _, state := range []struct {
+		name     string
+		disabled bool
+	}{
+		{name: "enabled", disabled: false},
+		{name: "disabled", disabled: true},
+	} {
+		for _, mixed := range []bool{true, false} {
+			name := "all skipped"
+			if mixed {
+				name = "mixed"
+			}
+			t.Run(state.name+"/"+name, func(t *testing.T) {
+				entries := []providerconfig.OpenAIApiKeyEntry{
+					{APIKey: "missing-auth-key"},
+					{APIKey: "blank-auth-key", AuthIndex: " \t"},
+					{AuthIndex: "empty-key-auth"},
+					{APIKey: " \t", AuthIndex: "blank-key-auth"},
+				}
+				var want []providermetadata.Credential
+				if mixed {
+					// 有效成员位于无效成员两侧，不能被缺标识的成员中断。
+					entries = append([]providerconfig.OpenAIApiKeyEntry{{APIKey: " first-key ", AuthIndex: " first-auth "}}, entries...)
+					entries = append(entries, providerconfig.OpenAIApiKeyEntry{APIKey: "second-key", AuthIndex: "second-auth"})
+					want = []providermetadata.Credential{
+						{LookupKey: "first-key", AuthIndex: "first-auth", ProviderType: "openai", DisplayName: "OpenAI Team", Disabled: &state.disabled},
+						{LookupKey: "second-key", AuthIndex: "second-auth", ProviderType: "openai", DisplayName: "OpenAI Team", Disabled: &state.disabled},
+					}
+				}
+				fetcher := successfulProviderFetcher()
+				fetcher.openAIResult.Payload = []providerconfig.OpenAICompatibilityConfig{{Name: "OpenAI Team", Disabled: &state.disabled, APIKeyEntries: entries}}
+
+				snapshot, err := providermetadata.Fetch(context.Background(), fetcher)
+				if err != nil {
+					t.Fatalf("Fetch returned error: %v", err)
+				}
+				if !reflect.DeepEqual(snapshot.FetchedProviderTypes, registrySourceOrder) {
+					t.Fatalf("FetchedProviderTypes = %#v, want %#v", snapshot.FetchedProviderTypes, registrySourceOrder)
+				}
+				if !reflect.DeepEqual(snapshot.Credentials, want) {
+					t.Fatalf("Credentials = %#v, want %#v", snapshot.Credentials, want)
+				}
+			})
+		}
+	}
+}
+
 func TestFetchRejectsWholeSourceWhenNonEmptyKeyHasNoAuthIndex(t *testing.T) {
 	for _, source := range registrySourceOrder {
 		if source == "openai" {
