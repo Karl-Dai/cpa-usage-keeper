@@ -34,8 +34,11 @@ export function disambiguateTimeLabels(
   precision: 'hours' | 'minutes' | 'seconds' = 'minutes',
 ): string[] {
   const labels = values.map(format);
+  // 未知服务端地区时区时沿用调用方原 fallback，不用浏览器地区推断后缀。
+  const resolvedTimezone = getIntlTimeZone(timezone);
+  if (!resolvedTimezone) return labels;
   try {
-    const readParts = createZonedPartsReader(getIntlTimeZone(timezone));
+    const readParts = createZonedPartsReader(resolvedTimezone);
     const clocks = values.map((value) => {
       const instant = Date.parse(value);
       if (!Number.isFinite(instant)) return null;

@@ -37,4 +37,20 @@ describe('response timezone label identity', () => {
     expect(createZonedPartsReader('Asia/Kathmandu')(Date.parse('2026-10-25T00:00:00Z')))
       .toEqual({ year: 2026, month: 10, day: 25, hour: 5, minute: 45, second: 0 });
   });
+
+  it('keeps literal fallback labels when the server timezone is unknown', () => {
+    const previous = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    try {
+      // 浏览器恰逢重复小时，但服务端原字面钟面是上海16点和17点。
+      const values = ['2026-11-01T16:00:00+08:00', '2026-11-01T17:00:00+08:00'];
+      for (const timezone of [undefined, 'Local', '']) {
+        expect(disambiguateTimeLabels(values, timezone, (_, i) => ['16:00', '17:00'][i]))
+          .toEqual(['16:00', '17:00']);
+      }
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
+  });
 });
