@@ -1294,13 +1294,21 @@ func loadUsageOverviewEventRangeWithProjection(db *gorm.DB, filter dto.UsageQuer
 		zone := time.FixedZone("", offset)
 		lower := cursor.In(zone).Format(time.RFC3339Nano)
 		upper := segmentEnd.In(zone).Format(time.RFC3339Nano)
-		query := db.Model(&entities.UsageEvent{}).Select(projection).
-			Where("timestamp >= ?", lower).
-			Order("timestamp asc")
-		if closed {
-			query = query.Where("timestamp <= ?", upper)
+		query := db.Model(&entities.UsageEvent{}).Select(projection).Order("timestamp asc")
+		if offset == 0 {
+			// RFC3339 的 Z 排在小数点之后，整秒/亚秒文本不能直接比较。
+			// 用不含后缀的整秒前缀覆盖边界秒，仍走索引；下方按真实时间裁剪。
+			const secondPrefix = "2006-01-02T15:04:05"
+			lower = cursor.In(zone).Format(secondPrefix)
+			upper = segmentEnd.In(zone).Truncate(time.Second).Add(time.Second).Format(secondPrefix)
+			query = query.Where("timestamp >= ? AND timestamp < ?", lower, upper)
 		} else {
-			query = query.Where("timestamp < ?", upper)
+			query = query.Where("timestamp >= ?", lower)
+			if closed {
+				query = query.Where("timestamp <= ?", upper)
+			} else {
+				query = query.Where("timestamp < ?", upper)
+			}
 		}
 		if !usageReadHasStableOffset(start, end) {
 			query = query.Where("timestamp LIKE ?", "%"+cursor.In(zone).Format("Z07:00"))
@@ -1313,7 +1321,11 @@ func loadUsageOverviewEventRangeWithProjection(db *gorm.DB, filter dto.UsageQuer
 			return nil, fmt.Errorf("load usage overview boundary event range: %w", err)
 		}
 		for _, row := range rows {
-			events = append(events, usageEventProjectionToEntity(row))
+			event := usageEventProjectionToEntity(row)
+			if offset == 0 && (event.Timestamp.Before(cursor) || event.Timestamp.After(segmentEnd) || (!closed && event.Timestamp.Equal(segmentEnd))) {
+				continue
+			}
+			events = append(events, event)
 		}
 		if closed || segmentEnd.Equal(end) && !includeEnd {
 			break
