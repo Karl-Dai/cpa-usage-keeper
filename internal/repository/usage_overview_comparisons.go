@@ -40,7 +40,13 @@ func usageOverviewComparisonBuckets(filter dto.UsageQueryFilter, byDay bool) []s
 			buckets = append(buckets, date.String())
 		}
 	} else {
-		for cursor := start.Truncate(time.Hour); cursor.Before(end) || (!filter.EndExclusive && cursor.Equal(end)); cursor = cursor.Add(time.Hour) {
+		includeEnd := !filter.EndExclusive
+		if filter.Range == "today" || filter.Range == "yesterday" {
+			// 与 Analysis 保持完整自然日轴和空终点；仅扩展显示轴，不改查询范围。
+			bounds, _ := timeutil.DayBounds(timeutil.DateOf(start), start.Location())
+			end, includeEnd = bounds.End, true
+		}
+		for cursor := start.Truncate(time.Hour); cursor.Before(end) || (includeEnd && cursor.Equal(end)); cursor = cursor.Add(time.Hour) {
 			buckets = append(buckets, usageOverviewBucket(cursor, false))
 		}
 	}
