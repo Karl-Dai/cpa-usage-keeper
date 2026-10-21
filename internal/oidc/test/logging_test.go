@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"cpa-usage-keeper/internal/oidc"
 	"github.com/sirupsen/logrus"
@@ -216,5 +217,55 @@ func TestOIDCCanceledTokenRequestDoesNotLogAnUpstreamFailure(t *testing.T) {
 	}
 	if len(hook.AllEntries()) != 0 {
 		t.Fatal("canceled request produced an upstream failure log")
+	}
+}
+
+func TestOIDCCanceledJWKSRequestDoesNotLogAnUpstreamFailure(t *testing.T) {
+	hook := captureOIDCLogs(t)
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		<-release
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer endpoint.Close()
+	defer close(release)
+	m := newMockIDP(t, false, "")
+	m.metadata = func(metadata map[string]any) { metadata["jwks_uri"] = endpoint.URL }
+	client := m.client(t, nil)
+	authorization, err := client.Begin(context.Background(), "/", nil, "oidc:192.0.2.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := m.code(t, authorization)
+	hook.Reset()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type outcome struct {
+		result oidc.LoginResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := client.Complete(ctx, authorization.State, authorization.Binding, code, "")
+		done <- outcome{result, err}
+	}()
+	// 等取钥请求真正开始后再模拟浏览器中断，确保覆盖验签阶段而非 Token 请求取消。
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("JWKS request did not begin")
+	}
+	cancel()
+	select {
+	case got := <-done:
+		if !errors.Is(got.err, oidc.ErrInvalid) || got.result.AuthenticationFailed {
+			t.Fatalf("canceled verification = %+v, %v", got.result, got.err)
+		}
+		if len(hook.AllEntries()) != 0 {
+			t.Fatal("canceled JWKS request produced an upstream failure log")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancellation did not unblock verification")
 	}
 }

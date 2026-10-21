@@ -148,7 +148,10 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 	verified, keysUnavailable, err := p.verify(ctx, c.config.Issuer, rawIDToken)
 	if err != nil {
 		result.AuthenticationFailed = !keysUnavailable
-		logFailure("id_token", "verification_failed")
+		// 浏览器中断等待不记故障；超时、取钥故障和真实验签失败仍保留一条诊断。
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			logFailure("id_token", "verification_failed")
+		}
 		return result, ErrInvalid
 	}
 	var claims map[string]json.RawMessage
