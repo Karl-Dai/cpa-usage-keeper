@@ -203,6 +203,37 @@ func TestOIDCCodeFlowHTTPHTTPSPathAndClientAuth(t *testing.T) {
 	}
 }
 
+func TestOIDCPromptLoginAuthorization(t *testing.T) {
+	m := newMockIDP(t, false, "")
+	m.metadata = func(metadata map[string]any) {
+		metadata["authorization_endpoint"] = m.server.URL + "/authorize?tenant=existing&prompt=consent"
+	}
+	for _, promptLogin := range []bool{true, false} {
+		t.Run(fmt.Sprint(promptLogin), func(t *testing.T) {
+			client, err := oidc.NewClient(oidc.Config{Issuer: m.issuer, ClientID: "keeper", ClientSecret: "secret", RedirectURL: "http://keeper.example/api/v1/auth/oidc/callback", PromptLogin: promptLogin}, m.server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			authorization, err := client.Begin(context.Background(), "/", nil, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			u, _ := url.Parse(authorization.URL)
+			values, present := u.Query()["prompt"]
+			if promptLogin && (len(values) != 1 || values[0] != "login") || !promptLogin && present {
+				t.Fatalf("prompt parameter = %v, enabled=%v", values, promptLogin)
+			}
+			if u.Query().Get("tenant") != "existing" {
+				t.Fatal("existing authorization endpoint query was lost")
+			}
+			result, err := client.Complete(context.Background(), authorization.State, authorization.Binding, m.code(t, authorization), "")
+			if err != nil || result.Identity.Subject != "Subject,A" {
+				t.Fatalf("login = %+v, %v", result, err)
+			}
+		})
+	}
+}
+
 func TestOIDCRejectsInvalidSignedClaimsAndSubject(t *testing.T) {
 	for name, change := range map[string]func(map[string]any){
 		"issuer":         func(c map[string]any) { c["iss"] = "https://other.example" },

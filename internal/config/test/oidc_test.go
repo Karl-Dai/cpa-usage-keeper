@@ -12,7 +12,7 @@ const validOIDCEnv = "AUTH_ENABLED=true\nLOGIN_PASSWORD=private-password\nAUTH_O
 
 func TestOIDCConfigDefaultsAndExplicitHTTPHTTPS(t *testing.T) {
 	cfg, err := config.Load(config.LoadOptions{EnvFile: writeAuthConfig(t, "LOGIN_PASSWORD=private-password\n")})
-	if err != nil || cfg.OIDC.Enabled {
+	if err != nil || cfg.OIDC.Enabled || !cfg.OIDC.PromptLogin {
 		t.Fatalf("OIDC default = %+v, %v", cfg, err)
 	}
 	for _, issuerScheme := range []string{"http", "https"} {
@@ -24,6 +24,23 @@ func TestOIDCConfigDefaultsAndExplicitHTTPHTTPS(t *testing.T) {
 				t.Fatalf("config = %+v, %v", cfg, err)
 			}
 		}
+	}
+}
+
+func TestOIDCPromptLoginConfiguration(t *testing.T) {
+	for _, value := range []string{"", "true", "false", "invalid"} {
+		t.Run("value="+value, func(t *testing.T) {
+			cfg, err := config.Load(config.LoadOptions{EnvFile: writeAuthConfig(t, validOIDCEnv+"AUTH_OIDC_PROMPT_LOGIN="+value+"\n")})
+			if value == "invalid" {
+				if err == nil || !strings.Contains(err.Error(), "AUTH_OIDC_PROMPT_LOGIN") {
+					t.Fatalf("invalid setting error = %v", err)
+				}
+				return
+			}
+			if err != nil || cfg.OIDC.PromptLogin != (value != "false") {
+				t.Fatalf("prompt login config = %+v, %v", cfg, err)
+			}
+		})
 	}
 }
 

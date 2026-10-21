@@ -265,12 +265,16 @@ func Load(options LoadOptions) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	oidcPromptLogin, err := getBool("AUTH_OIDC_PROMPT_LOGIN", true)
+	if err != nil {
+		return nil, err
+	}
 	oidcSubjects, err := oidc.ParseAllowedSubjects(os.Getenv("AUTH_OIDC_ALLOWED_SUBJECTS"))
 	if err != nil {
 		return nil, err
 	}
 	oidcConfig := oidc.Config{
-		Enabled: oidcEnabled, Issuer: strings.TrimSpace(os.Getenv("AUTH_OIDC_ISSUER")),
+		Enabled: oidcEnabled, PromptLogin: oidcPromptLogin, Issuer: strings.TrimSpace(os.Getenv("AUTH_OIDC_ISSUER")),
 		ClientID: strings.TrimSpace(os.Getenv("AUTH_OIDC_CLIENT_ID")), ClientSecret: strings.TrimSpace(os.Getenv("AUTH_OIDC_CLIENT_SECRET")),
 		RedirectURL: strings.TrimSpace(os.Getenv("AUTH_OIDC_REDIRECT_URL")), AllowedSubjects: oidcSubjects,
 	}

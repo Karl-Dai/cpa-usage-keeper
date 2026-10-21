@@ -10,6 +10,7 @@ import (
 // Config 只描述单个静态注册的服务器端客户端，不接受浏览器传入协议端点。
 type Config struct {
 	Enabled         bool
+	PromptLogin     bool
 	Issuer          string
 	ClientID        string
 	ClientSecret    string

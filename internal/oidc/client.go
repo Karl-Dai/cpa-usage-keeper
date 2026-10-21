@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -84,8 +85,18 @@ func (c *Client) Begin(ctx context.Context, returnTo string, bindings map[string
 	if err != nil {
 		return Authorization{}, err
 	}
-	url := p.oauth.AuthCodeURL(txn.State, oauth2.SetAuthURLParam("nonce", txn.Nonce), oauth2.SetAuthURLParam("response_mode", "query"), oauth2.S256ChallengeOption(txn.Verifier))
-	return Authorization{URL: url, State: txn.State, Binding: binding, ExpiresAt: txn.ExpiresAt}, nil
+	authorizationURL, err := url.Parse(p.oauth.AuthCodeURL(txn.State, oauth2.SetAuthURLParam("nonce", txn.Nonce), oauth2.SetAuthURLParam("response_mode", "query"), oauth2.S256ChallengeOption(txn.Verifier)))
+	if err != nil {
+		return Authorization{}, ErrUnavailable
+	}
+	// prompt 仅由本地开关决定，避免元数据端点已有的同名参数覆盖此策略。
+	query := authorizationURL.Query()
+	query.Del("prompt")
+	if c.config.PromptLogin {
+		query.Set("prompt", "login")
+	}
+	authorizationURL.RawQuery = query.Encode()
+	return Authorization{URL: authorizationURL.String(), State: txn.State, Binding: binding, ExpiresAt: txn.ExpiresAt}, nil
 }
 
 // Complete 先消费已绑定事务，再访问端点；同一回调无论成功或失败都只能执行一次。
