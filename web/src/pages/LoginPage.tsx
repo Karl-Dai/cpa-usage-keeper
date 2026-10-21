@@ -87,7 +87,7 @@ export function LoginPage({ loading = false, oidcEnabled = false, onOIDCLogin, a
           <p className={styles.subtitle}>{t('auth.login_subtitle')}</p>
         </div>
 
-        <Card className={styles.loginCard}>
+        <Card className={`${styles.loginCard} ${mode === 'api_key' && oidcEnabled && onOIDCLogin ? styles.loginCardOIDCSpace : ''}`.trim()}>
           <div className={styles.cardHeader}>
             <span className={styles.cardKicker}>{t('auth.console_kicker')}</span>
             <h2 className={styles.cardTitle}>{t('auth.console_title')}</h2>
