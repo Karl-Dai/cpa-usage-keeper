@@ -242,6 +242,18 @@ export async function getSession(signal?: AbortSignal): Promise<AuthSessionRespo
   return session
 }
 
+export async function startOIDCLogin(returnTo: string): Promise<{ authorization_url: string }> {
+  const response = await apiFetch(apiPath('/auth/oidc/login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ return_to: returnTo }),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Unable to start OIDC login: ${response.status}`)
+  }
+  return await response.json()
+}
+
 async function readEmbedLoginResponse(response: Response): Promise<EmbedLoginResponse> {
   if (!isCPAMCEmbed()) return {}
   try {

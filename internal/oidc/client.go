@@ -1,0 +1,181 @@
+package oidc
+
+import (
+	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"io"
+	"net/http"
+	"sync"
+	"time"
+
+	"golang.org/x/oauth2"
+)
+
+const ClockSkew = time.Minute
+
+type Client struct {
+	config       Config
+	http         *http.Client
+	transactions *TransactionStore
+	mu           sync.Mutex
+	cached       *provider
+	flight       *discoveryFlight
+	retryAt      time.Time
+	httpWarning  sync.Once
+}
+
+type Authorization struct {
+	URL       string
+	State     string
+	Binding   string
+	ExpiresAt time.Time
+}
+
+type Identity struct {
+	Issuer, Subject, ClientID      string
+	Name, PreferredUsername, Email string
+}
+
+type LoginResult struct {
+	Identity  Identity
+	ReturnTo  string
+	SourceKey string
+}
+
+// NewClient 不访问 IdP，外部暂时故障不能阻塞 Keeper 启动和密码登录。
+// httpClient 允许调用方注入受信任的内部 CA；不会继承 CPA 的跳过 TLS 校验选项。
+func NewClient(config Config, httpClient *http.Client) (*Client, error) {
+	if _, err := ParseEndpoint(config.Issuer); err != nil {
+		return nil, ErrInvalid
+	}
+	if _, err := ParseEndpoint(config.RedirectURL); err != nil {
+		return nil, ErrInvalid
+	}
+	if config.ClientID == "" || config.ClientSecret == "" {
+		return nil, ErrInvalid
+	}
+	client := &http.Client{Timeout: ExternalRequestTimeout}
+	if httpClient != nil {
+		*client = *httpClient
+	}
+	if client.Timeout <= 0 || client.Timeout > ExternalRequestTimeout {
+		client.Timeout = ExternalRequestTimeout
+	}
+	// 凭据请求不得随重定向流向另一个端点；Discovery 也使用相同的可预测规则。
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	config.AllowedSubjects = append([]string(nil), config.AllowedSubjects...)
+	return &Client{config: config, http: client, transactions: NewTransactionStore(TransactionOptions{})}, nil
+}
+
+func (c *Client) Config() Config {
+	result := c.config
+	result.ClientSecret = ""
+	result.AllowedSubjects = append([]string(nil), result.AllowedSubjects...)
+	return result
+}
+
+func (c *Client) Begin(ctx context.Context, returnTo string, bindings map[string]string, sourceKey string) (Authorization, error) {
+	p, err := c.getProvider(ctx)
+	if err != nil {
+		return Authorization{}, err
+	}
+	txn, binding, err := c.transactions.Create(c.config.Issuer, c.config.ClientID, returnTo, sourceKey, bindings)
+	if err != nil {
+		return Authorization{}, err
+	}
+	url := p.oauth.AuthCodeURL(txn.State, oauth2.SetAuthURLParam("nonce", txn.Nonce), oauth2.SetAuthURLParam("response_mode", "query"), oauth2.S256ChallengeOption(txn.Verifier))
+	return Authorization{URL: url, State: txn.State, Binding: binding, ExpiresAt: txn.ExpiresAt}, nil
+}
+
+// Complete 先消费已绑定事务，再访问端点；同一回调无论成功或失败都只能执行一次。
+func (c *Client) Complete(ctx context.Context, state, binding, code, providerError string) (LoginResult, error) {
+	txn, err := c.transactions.Consume(state, binding)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	result := LoginResult{ReturnTo: txn.ReturnTo, SourceKey: txn.SourceKey}
+	if providerError != "" {
+		if providerError == "access_denied" {
+			return result, ErrCanceled
+		}
+		return result, ErrInvalid
+	}
+	if code == "" || txn.Issuer != c.config.Issuer || txn.ClientID != c.config.ClientID {
+		return result, ErrInvalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, CallbackTimeout)
+	defer cancel()
+	p, err := c.getProvider(ctx)
+	if err != nil {
+		return result, err
+	}
+	token, err := p.oauth.Exchange(context.WithValue(ctx, oauth2.HTTPClient, c.http), code, oauth2.VerifierOption(txn.Verifier))
+	if err != nil {
+		return result, ErrUnavailable
+	}
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok || rawIDToken == "" {
+		return result, ErrInvalid
+	}
+	verified, err := p.verifier.Verify(ctx, rawIDToken)
+	if err != nil {
+		return result, ErrInvalid
+	}
+	var claims map[string]json.RawMessage
+	if verified.Claims(&claims) != nil || !validClaims(claims, c.config.Issuer, c.config.ClientID, txn.Nonce, time.Now()) {
+		return result, ErrInvalid
+	}
+	if verified.Issuer != c.config.Issuer || subtle.ConstantTimeCompare([]byte(verified.Nonce), []byte(txn.Nonce)) != 1 {
+		return result, ErrInvalid
+	}
+	if verified.AccessTokenHash != "" && (token.AccessToken == "" || verified.VerifyAccessToken(token.AccessToken) != nil) {
+		return result, ErrInvalid
+	}
+	identity := Identity{Issuer: verified.Issuer, Subject: verified.Subject, ClientID: c.config.ClientID, Name: optionalString(claims, "name"), PreferredUsername: optionalString(claims, "preferred_username"), Email: optionalString(claims, "email")}
+	if !c.config.AllowsSubject(identity.Subject) {
+		return result, ErrDenied
+	}
+	if identity.Name == "" && p.metadata.UserInfoEndpoint != "" && token.AccessToken != "" {
+		userinfo, err := c.userInfo(ctx, p.metadata.UserInfoEndpoint, token.AccessToken)
+		if err == nil {
+			if optionalString(userinfo, "sub") != identity.Subject {
+				return result, ErrInvalid
+			}
+			identity.Name = optionalString(userinfo, "name")
+			if identity.PreferredUsername == "" {
+				identity.PreferredUsername = optionalString(userinfo, "preferred_username")
+			}
+			if identity.Email == "" {
+				identity.Email = optionalString(userinfo, "email")
+			}
+		}
+	}
+	result.Identity = identity
+	return result, nil
+}
+
+func (c *Client) userInfo(ctx context.Context, endpoint, accessToken string) (map[string]json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := c.http.Do(req)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, ErrUnavailable
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil || len(body) > maxResponseBytes {
+		return nil, ErrUnavailable
+	}
+	var claims map[string]json.RawMessage
+	if json.Unmarshal(body, &claims) != nil || claims == nil {
+		return nil, ErrUnavailable
+	}
+	return claims, nil
+}
