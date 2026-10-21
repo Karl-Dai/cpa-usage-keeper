@@ -137,7 +137,7 @@ func TestPricingRecalculationHTTPWithRealStorage(t *testing.T) {
 		t.Fatalf("duplicate request replaced or queued a task: %d %s", duplicate.Code, duplicate.Body.String())
 	}
 	// 停稳等待不占 writer；新消息持久化成功，但尚不生成 usage_event。
-	payload := fmt.Sprintf(`{"timestamp":%q,"provider":"codex","auth_type":"oauth","auth_index":"test-auth","model":"priced","request_id":"during-recalculation","tokens":{"input_tokens":1000000}}`, start.Add(2*time.Minute).Format(time.RFC3339Nano))
+	payload := fmt.Sprintf(`{"timestamp":%q,"provider":"codex","auth_type":"oauth","auth_index":"test-auth","model":"priced","execution_id":"fixture-execution","request_id":"during-recalculation","tokens":{"input_tokens":1000000}}`, start.Add(2*time.Minute).Format(time.RFC3339Nano))
 	inbox, err := repository.InsertRedisUsageInboxRawMessages(db, "redis_subscribe:usage", []string{payload}, end)
 	if err != nil || len(inbox) != 1 {
 		t.Fatalf("CPA reception while paused: %+v %v", inbox, err)

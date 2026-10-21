@@ -75,7 +75,10 @@ export function StartupPage({ status, connectionIssue, onRetry }: StartupPagePro
                   </>}
                 </div>
               )}
-              {phase === 'failed' && <p className={styles.nextStep}>{t('startup.failed_next_step')}</p>}
+              {phase === 'failed' && <>
+                <p className={styles.nextStep}>{t('startup.failed_next_step')}</p>
+                <p className={styles.nextStep}>{t('startup.failed_rollback')}</p>
+              </>}
               {connectionIssue && <p className={styles.connection} role="alert">{t('startup.connection_issue')}</p>}
               {(phase === 'failed' || connectionIssue) && <Button type="button" variant="secondary" onClick={onRetry}>
                 {t('startup.check_again')}

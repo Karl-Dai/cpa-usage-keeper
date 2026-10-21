@@ -125,7 +125,7 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
         requestControllerRef.current = null
       }
     }
-  }, [enabled, onAuthRequired, resetQuotaCache, stableAuthIndexes])
+  }, [enabled, onAuthRequired, stableAuthIndexes])
 
   useEffect(() => {
     void refreshQuotaCache()
@@ -138,7 +138,7 @@ export function useQuotaCache({ enabled, authIndexes, onAuthRequired }: UseQuota
       requestControllerRef.current?.abort()
       requestControllerRef.current = null
     }
-  }, [enabled, refreshQuotaCache, resetQuotaCache])
+  }, [enabled, refreshQuotaCache])
 
   return {
     quotaResponseByAuthIndex: snapshot.quotas,

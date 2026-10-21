@@ -44,7 +44,7 @@ func TestPricingStoragePhaseRejectsMissingPublishedMigration(t *testing.T) {
 	assertNoFuturePricingColumns(t, db, "usage_events", "cost_usd", "cost_available")
 }
 
-// main 的新增迁移必须先归入已发布阶段，不能被未发布 v2 的费用分界截断。
+// 费用改版前已发布的元数据迁移必须先完成，恢复迁移则留在完整迁移阶段。
 func TestPricingStorageWaitsForLatestMainMetadataMigration(t *testing.T) {
 	db := openUnmigratedTestDatabase(t)
 	seedPhysicalPricingStorageBeforeCost(t, db)
