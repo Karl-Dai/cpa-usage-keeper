@@ -242,7 +242,7 @@ jobs:
       - binary-release-windows
     steps:
       - name: Download binary package artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: cpa-usage-keeper-${{ github.ref_name }}-*
           path: dist
@@ -280,7 +280,7 @@ jobs:
     needs: [release-policy, publish-release]
     steps:
       - name: Download binary package artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: cpa-usage-keeper-${{ github.ref_name }}-*
           path: dist
