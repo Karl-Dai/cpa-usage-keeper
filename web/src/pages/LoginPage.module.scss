@@ -237,3 +237,7 @@
     line-height: 1.45;
   }
 }
+
+.form :global(.btn) {
+  border-radius: $radius-full;
+}
