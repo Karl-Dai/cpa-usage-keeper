@@ -101,3 +101,18 @@ func TestOIDCUnboundCallbackCannotChargeVictimAndGlobalRequestLimitRemains(t *te
 		t.Fatalf("global request limit no longer applies to canceled logins: %d", response.Code)
 	}
 }
+
+func TestOIDCInvalidCodesReachSourceLimitBeforeAnySuccessfulLogin(t *testing.T) {
+	e := newOIDCAPIEnvironment(t, "", "http")
+	for range 5 {
+		query, binding := e.begin(t, "/")
+		callback := "/api/v1/auth/oidc/callback?" + url.Values{"state": {query.Get("state")}, "code": {"invalid-code"}}.Encode()
+		response := e.request(http.MethodGet, callback, "", []*http.Cookie{binding}, nil)
+		if response.Code != http.StatusSeeOther || !strings.Contains(response.Header().Get("Location"), "oidc_error=") {
+			t.Fatalf("invalid code callback = %d", response.Code)
+		}
+	}
+	if response := e.request(http.MethodPost, "/api/v1/auth/oidc/login", `{}`, nil, nil); response.Code != http.StatusTooManyRequests {
+		t.Fatalf("invalid grants did not reach the source failure limit: %d", response.Code)
+	}
+}

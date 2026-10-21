@@ -66,12 +66,17 @@ func newOIDCAPIEnvironment(t *testing.T, base, scheme string) *oidcAPIEnvironmen
 		case "/token":
 			_ = r.ParseForm()
 			client, secret, _ := r.BasicAuth()
+			if client != "keeper" || secret != "secret" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+				return
+			}
 			e.mu.Lock()
 			query := e.authorizations[r.Form.Get("code")]
 			delete(e.authorizations, r.Form.Get("code"))
 			e.mu.Unlock()
 			hash := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
-			if client != "keeper" || secret != "secret" || query == nil || query.Get("code_challenge") != base64.RawURLEncoding.EncodeToString(hash[:]) {
+			if query == nil || query.Get("code_challenge") != base64.RawURLEncoding.EncodeToString(hash[:]) {
 				w.WriteHeader(400)
 				_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"upstream-secret"}`))
 				return

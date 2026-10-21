@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	coreoidc "github.com/coreos/go-oidc/v3/oidc"
@@ -43,6 +44,7 @@ type metadata struct {
 type provider struct {
 	metadata     metadata
 	oauth        *oauth2.Config
+	authStyle    *atomic.Int32
 	verification coreoidc.Config
 	keys         *coreoidc.RemoteKeySet
 	expiresAt    time.Time
@@ -169,15 +171,19 @@ func (c *Client) fetchProvider(ctx context.Context, previous *provider) (*provid
 		// 库保存的网络上下文独立于发起登录的请求，HTTP Client 自身仍有超时。
 		keys = coreoidc.NewRemoteKeySet(coreoidc.ClientContext(context.Background(), c.http), m.JWKSURI)
 	}
+	authStyle := &atomic.Int32{}
+	if previous != nil && previous.metadata.TokenEndpoint == m.TokenEndpoint {
+		authStyle = previous.authStyle
+	}
 	var oauthConfig *oauth2.Config
 	if previous != nil && previous.metadata.TokenEndpoint == m.TokenEndpoint && previous.metadata.AuthorizationEndpoint == m.AuthorizationEndpoint {
 		oauthConfig = previous.oauth
 	}
 	if oauthConfig == nil {
-		oauthConfig = &oauth2.Config{ClientID: c.config.ClientID, ClientSecret: c.config.ClientSecret, RedirectURL: c.config.RedirectURL, Scopes: []string{"openid", "profile", "email"}, Endpoint: oauth2.Endpoint{AuthURL: m.AuthorizationEndpoint, TokenURL: m.TokenEndpoint, AuthStyle: oauth2.AuthStyleAutoDetect}}
+		oauthConfig = &oauth2.Config{ClientID: c.config.ClientID, ClientSecret: c.config.ClientSecret, RedirectURL: c.config.RedirectURL, Scopes: []string{"openid", "profile", "email"}, Endpoint: oauth2.Endpoint{AuthURL: m.AuthorizationEndpoint, TokenURL: m.TokenEndpoint}}
 	}
 	c.warnHTTPMetadata(m)
-	return &provider{metadata: m, oauth: oauthConfig, keys: keys, verification: coreoidc.Config{ClientID: c.config.ClientID, SupportedSigningAlgs: algorithms, Now: func() time.Time { return time.Now().Add(-ClockSkew) }}, expiresAt: time.Now().Add(cacheLifetime(response.Header))}, nil
+	return &provider{metadata: m, oauth: oauthConfig, authStyle: authStyle, keys: keys, verification: coreoidc.Config{ClientID: c.config.ClientID, SupportedSigningAlgs: algorithms, Now: func() time.Time { return time.Now().Add(-ClockSkew) }}, expiresAt: time.Now().Add(cacheLifetime(response.Header))}, nil
 }
 
 func supportsIfPresent(values []string, required string) bool {

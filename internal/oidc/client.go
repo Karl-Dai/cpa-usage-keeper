@@ -130,7 +130,7 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 	if err != nil {
 		return result, err
 	}
-	token, err := p.oauth.Exchange(context.WithValue(ctx, oauth2.HTTPClient, c.http), code, oauth2.VerifierOption(txn.Verifier))
+	token, err := p.exchange(context.WithValue(ctx, oauth2.HTTPClient, c.http), code, txn.Verifier)
 	if err != nil {
 		logRequestFailure("token", 0, err)
 		var responseError *oauth2.RetrieveError
