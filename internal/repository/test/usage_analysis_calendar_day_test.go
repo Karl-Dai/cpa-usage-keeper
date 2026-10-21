@@ -1,6 +1,8 @@
 package test
 
 import (
+	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -9,6 +11,117 @@ import (
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 )
+
+func TestAnalysisCalendarDayExcludesAdjacentDates(t *testing.T) {
+	for _, tc := range []struct {
+		zone        string
+		month       time.Month
+		day         int
+		granularity dto.AnalysisGranularity
+	}{
+		{"UTC", time.April, 5, dto.AnalysisGranularityHourly},
+		{"Asia/Shanghai", time.April, 5, dto.AnalysisGranularityHourly},
+		{"America/Los_Angeles", time.March, 8, dto.AnalysisGranularityHourly},
+		{"America/Los_Angeles", time.November, 1, dto.AnalysisGranularityHourly},
+		{"Australia/Lord_Howe", time.April, 5, dto.AnalysisGranularityDaily},
+		{"Australia/Adelaide", time.April, 5, dto.AnalysisGranularityDaily},
+		{"Pacific/Chatham", time.April, 5, dto.AnalysisGranularityDaily},
+	} {
+		for _, rangeName := range []string{"today", "yesterday"} {
+			t.Run(tc.zone+"/"+tc.month.String()+"/"+rangeName, func(t *testing.T) {
+				location := setAnalysisLatencyTestTimezone(t, tc.zone)
+				start := time.Date(2026, tc.month, tc.day, 0, 0, 0, 0, location)
+				next := time.Date(2026, tc.month, tc.day+1, 0, 0, 0, 0, location)
+				anchor := time.Date(2026, tc.month, tc.day, 12, 0, 0, 0, location)
+				if rangeName == "yesterday" {
+					anchor = anchor.AddDate(0, 0, 1)
+				}
+				parsed, err := timeutil.ParseUsageQueryRange(rangeName, "", "", "", anchor)
+				if err != nil {
+					t.Fatal(err)
+				}
+				db := openTestDatabase(t)
+				if err := db.Create(&entities.CPAAPIKey{APIKey: "boundary-key"}).Error; err != nil {
+					t.Fatal(err)
+				}
+				var events []entities.UsageEvent
+				for _, event := range []struct {
+					key    string
+					at     time.Time
+					tokens int64
+				}{
+					{"previous-day", start.Add(-5 * time.Minute), 1000},
+					{"first-in-day", start.Add(5 * time.Minute), 100},
+					{"last-in-day", next.Add(-5 * time.Minute), 200},
+					{"next-day", next.Add(5 * time.Minute), 9000},
+				} {
+					events = append(events, entities.UsageEvent{
+						EventKey: event.key, APIGroupKey: "boundary-key", Model: "model", Timestamp: event.at,
+						TotalTokens: event.tokens, OutputTokens: event.tokens, LatencyMS: 1000,
+						TTFTMS: new(int64(100)), Generate: new(true), CostAvailable: new(true), CostUSD: new(float64(event.tokens) / 100),
+					})
+				}
+				if _, _, err := repository.InsertUsageEvents(db, events); err != nil {
+					t.Fatal(err)
+				}
+				if err := repository.AggregateUsageOverviewStats(context.Background(), db, next.Add(12*time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+				// 原始事件可已过保留期，必须仅凭现有增量表隔离相邻日期。
+				if err := db.Migrator().DropTable(&entities.UsageEvent{}); err != nil {
+					t.Fatal(err)
+				}
+				filter := dto.UsageQueryFilter{Range: rangeName, StartTime: &parsed.StartTime, EndTime: &parsed.EndTime, QueryNow: &anchor, APIGroupKey: "boundary-key"}
+				queries := captureAllAnalysisQueries(t, db)
+				got, err := repository.BuildAnalysisWithFilter(db, filter)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var tokens, requests int64
+				for _, bucket := range got.TokenUsage {
+					tokens += bucket.TotalTokens
+					requests += bucket.Requests
+				}
+				if tokens != 300 || requests != 2 || !got.CostSummary.CostAvailable {
+					t.Errorf("adjacent dates affected totals: tokens=%d requests=%d cost=%+v", tokens, requests, got.CostSummary)
+				}
+				assertFloatClose(t, got.CostSummary.TotalCostUSD, 3)
+				if len(got.ModelSpeed.Series) != 1 || got.ModelSpeed.Series[0].TotalTokens != 300 || got.ModelSpeed.Series[0].SpeedSampleCount != 2 {
+					t.Fatalf("adjacent dates affected model speed: %+v", got.ModelSpeed.Series)
+				}
+				var speedSum float64
+				for _, sample := range got.ModelSpeed.Series[0].Samples {
+					speedSum += sample.SpeedTPSSum
+				}
+				assertFloatClose(t, speedSum/float64(got.ModelSpeed.Series[0].SpeedSampleCount), 150)
+				if got.Granularity != tc.granularity {
+					t.Fatalf("granularity = %s, want %s", got.Granularity, tc.granularity)
+				}
+				if tc.granularity == dto.AnalysisGranularityDaily {
+					requireSingleAnalysisRollupQuery(t, *queries, "usage_overview_daily_stats")
+					// 退回已存在的日汇总契约，完整响应保持与显式日粒度一致。
+					filter.Range, filter.CustomUnit = "custom", "day"
+					want, err := repository.BuildAnalysisWithFilter(db, filter)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(got, want) {
+						t.Fatal("calendar-day response differs from explicit daily response")
+					}
+				} else {
+					requireSingleAnalysisRollupQuery(t, *queries, "usage_overview_hourly_stats")
+					if len(got.TokenUsage) != int(next.Sub(start)/time.Hour)+1 {
+						t.Fatalf("incomplete hourly axis: %+v", got.TokenUsage)
+					}
+					last := got.TokenUsage[len(got.TokenUsage)-1]
+					if !last.Bucket.Equal(next) || last.TotalTokens != 0 || last.Requests != 0 {
+						t.Fatalf("missing empty next-midnight sentinel: %+v", last)
+					}
+				}
+			})
+		}
+	}
+}
 
 func TestAnalysisCalendarDayKeepsHourlyDataAndEndingSentinel(t *testing.T) {
 	for _, tc := range []struct {
