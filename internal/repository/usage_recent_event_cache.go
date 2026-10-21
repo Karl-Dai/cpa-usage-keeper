@@ -179,7 +179,7 @@ func NewUsageRecentEventCache(db *gorm.DB, opts UsageRecentEventCacheOptions) (*
 	// 初始化完成后释放锁，后续读写正常并发。
 	cache.mu.Unlock()
 	// 健康图保留 5h，可能覆盖高流量账号的百万级请求；按批流式加载，避免启动峰值内存跟行数线性增长。
-	if err := loadCredentialHealthCacheRowsBatched(db, now.Add(-credentialHealthWindow), credentialHealthStartupBatchSize, func(rows []credentialHealthLoadRow) error {
+	if err := loadCredentialHealthCacheRowsBatched(db, now.Add(-credentialHealthWindow), now, credentialHealthStartupBatchSize, func(rows []credentialHealthLoadRow) error {
 		cache.mu.Lock()
 		cache.appendCredentialHealthRowsLocked(rows)
 		cache.mu.Unlock()
