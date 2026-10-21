@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -43,6 +44,8 @@ type LoginResult struct {
 	Identity  Identity
 	ReturnTo  string
 	SourceKey string
+	// AuthenticationFailed 只标记已绑定事务中确认的认证拒绝，取消和外部故障不计入。
+	AuthenticationFailed bool
 }
 
 // NewClient 不访问 IdP，外部暂时故障不能阻塞 Keeper 启动和密码登录。
@@ -113,9 +116,11 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 			return result, ErrCanceled
 		}
 		logrus.WithFields(logrus.Fields{"stage": "authorization", "oauth_error": safeOAuthError(providerError)}).Warn("OIDC authorization failed")
+		result.AuthenticationFailed = providerError == "invalid_response"
 		return result, ErrInvalid
 	}
 	if code == "" || txn.Issuer != c.config.Issuer || txn.ClientID != c.config.ClientID {
+		result.AuthenticationFailed = true
 		logFailure("callback", "invalid_authorization_response")
 		return result, ErrInvalid
 	}
@@ -128,33 +133,43 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 	token, err := p.oauth.Exchange(context.WithValue(ctx, oauth2.HTTPClient, c.http), code, oauth2.VerifierOption(txn.Verifier))
 	if err != nil {
 		logRequestFailure("token", 0, err)
+		var responseError *oauth2.RetrieveError
+		if errors.As(err, &responseError) && responseError.ErrorCode == "invalid_grant" && responseError.Response != nil && responseError.Response.StatusCode < 500 && responseError.Response.StatusCode != http.StatusTooManyRequests {
+			result.AuthenticationFailed = true
+		}
 		return result, ErrUnavailable
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
+		result.AuthenticationFailed = true
 		logFailure("id_token", "missing_id_token")
 		return result, ErrInvalid
 	}
-	verified, err := p.verifier.Verify(ctx, rawIDToken)
+	verified, keysUnavailable, err := p.verify(ctx, c.config.Issuer, rawIDToken)
 	if err != nil {
+		result.AuthenticationFailed = !keysUnavailable
 		logFailure("id_token", "verification_failed")
 		return result, ErrInvalid
 	}
 	var claims map[string]json.RawMessage
 	if verified.Claims(&claims) != nil || !validClaims(claims, c.config.Issuer, c.config.ClientID, txn.Nonce, time.Now()) {
+		result.AuthenticationFailed = true
 		logFailure("id_token", "invalid_claims")
 		return result, ErrInvalid
 	}
 	if verified.Issuer != c.config.Issuer || subtle.ConstantTimeCompare([]byte(verified.Nonce), []byte(txn.Nonce)) != 1 {
+		result.AuthenticationFailed = true
 		logFailure("id_token", "issuer_or_nonce_mismatch")
 		return result, ErrInvalid
 	}
 	if verified.AccessTokenHash != "" && (token.AccessToken == "" || verified.VerifyAccessToken(token.AccessToken) != nil) {
+		result.AuthenticationFailed = true
 		logFailure("id_token", "access_token_hash_mismatch")
 		return result, ErrInvalid
 	}
 	identity := Identity{Issuer: verified.Issuer, Subject: verified.Subject, ClientID: c.config.ClientID, Name: optionalString(claims, "name"), PreferredUsername: optionalString(claims, "preferred_username"), Email: optionalString(claims, "email")}
 	if !c.config.AllowsSubject(identity.Subject) {
+		result.AuthenticationFailed = true
 		logFailure("admission", "subject_not_allowed")
 		return result, ErrDenied
 	}
@@ -162,6 +177,7 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 		userinfo, err := c.userInfo(ctx, p.metadata.UserInfoEndpoint, token.AccessToken)
 		if err == nil {
 			if optionalString(userinfo, "sub") != identity.Subject {
+				result.AuthenticationFailed = true
 				logFailure("userinfo", "subject_mismatch")
 				return result, ErrInvalid
 			}

@@ -400,6 +400,10 @@ func (h *authHandler) logout(c *gin.Context) {
 
 func (h *authHandler) allowLoginAttempt(c *gin.Context, key string) bool {
 	allowed, retryAfter := h.loginAttempts.Allow(key)
+	return writeLoginAttemptResult(c, allowed, retryAfter)
+}
+
+func writeLoginAttemptResult(c *gin.Context, allowed bool, retryAfter time.Duration) bool {
 	if allowed {
 		return true
 	}

@@ -41,11 +41,11 @@ type metadata struct {
 }
 
 type provider struct {
-	metadata  metadata
-	oauth     *oauth2.Config
-	verifier  *coreoidc.IDTokenVerifier
-	keys      *coreoidc.RemoteKeySet
-	expiresAt time.Time
+	metadata     metadata
+	oauth        *oauth2.Config
+	verification coreoidc.Config
+	keys         *coreoidc.RemoteKeySet
+	expiresAt    time.Time
 }
 
 type discoveryFlight struct {
@@ -177,7 +177,7 @@ func (c *Client) fetchProvider(ctx context.Context, previous *provider) (*provid
 		oauthConfig = &oauth2.Config{ClientID: c.config.ClientID, ClientSecret: c.config.ClientSecret, RedirectURL: c.config.RedirectURL, Scopes: []string{"openid", "profile", "email"}, Endpoint: oauth2.Endpoint{AuthURL: m.AuthorizationEndpoint, TokenURL: m.TokenEndpoint, AuthStyle: oauth2.AuthStyleAutoDetect}}
 	}
 	c.warnHTTPMetadata(m)
-	return &provider{metadata: m, oauth: oauthConfig, keys: keys, verifier: coreoidc.NewVerifier(c.config.Issuer, keys, &coreoidc.Config{ClientID: c.config.ClientID, SupportedSigningAlgs: algorithms, Now: func() time.Time { return time.Now().Add(-ClockSkew) }}), expiresAt: time.Now().Add(cacheLifetime(response.Header))}, nil
+	return &provider{metadata: m, oauth: oauthConfig, keys: keys, verification: coreoidc.Config{ClientID: c.config.ClientID, SupportedSigningAlgs: algorithms, Now: func() time.Time { return time.Now().Add(-ClockSkew) }}, expiresAt: time.Now().Add(cacheLifetime(response.Header))}, nil
 }
 
 func supportsIfPresent(values []string, required string) bool {

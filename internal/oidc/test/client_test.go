@@ -258,9 +258,12 @@ func TestOIDCRejectsInvalidSignedClaimsAndSubject(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := newMockIDP(t, false, "")
 			m.claims = change
-			_, err := loginMock(t, m, m.client(t, []string{"Subject,A"}))
+			result, err := loginMock(t, m, m.client(t, []string{"Subject,A"}))
 			if err == nil {
 				t.Fatal("invalid identity accepted")
+			}
+			if !result.AuthenticationFailed {
+				t.Fatal("invalid identity was not classified as authentication failure")
 			}
 			if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "code-") {
 				t.Fatalf("sensitive error: %v", err)
@@ -466,7 +469,7 @@ func TestOIDCRejectsWrongSignatureAndUnsignedTokenAndAcceptsRotatedKey(t *testin
 				t.Cleanup(endpoint.Close)
 				meta["token_endpoint"] = endpoint.URL
 			}
-			if _, err := loginMock(t, bad, bad.client(t, nil)); err == nil {
+			if result, err := loginMock(t, bad, bad.client(t, nil)); err == nil || !result.AuthenticationFailed {
 				t.Fatal("invalid signature accepted")
 			}
 		})

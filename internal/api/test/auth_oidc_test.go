@@ -32,6 +32,9 @@ type oidcAPIEnvironment struct {
 	base, public   string
 	mu             sync.Mutex
 	authorizations map[string]url.Values
+	failurePath    string
+	failureStatus  int
+	failureCode    string
 }
 
 func newOIDCAPIEnvironment(t *testing.T, base, scheme string) *oidcAPIEnvironment {
@@ -43,6 +46,18 @@ func newOIDCAPIEnvironment(t *testing.T, base, scheme string) *oidcAPIEnvironmen
 	e := &oidcAPIEnvironment{base: base, public: strings.ToLower(scheme) + "://keeper.example", authorizations: make(map[string]url.Values)}
 	e.idp = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		e.mu.Lock()
+		failurePath, failureStatus, failureCode := e.failurePath, e.failureStatus, e.failureCode
+		e.mu.Unlock()
+		if r.URL.Path == failurePath {
+			w.WriteHeader(failureStatus)
+			if failureStatus == http.StatusOK {
+				_, _ = w.Write([]byte(`{"keys":`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": failureCode, "error_description": "upstream-secret"})
+			return
+		}
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": e.idp.URL, "authorization_endpoint": e.idp.URL + "/authorize", "token_endpoint": e.idp.URL + "/token", "jwks_uri": e.idp.URL + "/keys", "response_types_supported": []string{"code"}, "id_token_signing_alg_values_supported": []string{"RS256"}})
@@ -79,6 +94,12 @@ func newOIDCAPIEnvironment(t *testing.T, base, scheme string) *oidcAPIEnvironmen
 	cfg := keeperapi.AuthConfig{Enabled: true, LoginPassword: "password", SessionTTL: time.Hour, BasePath: base, OIDC: client}
 	e.router = keeperapi.NewRouter(nil, nil, nil, nil, cfg, keeperapi.NewAuthHandler(cfg, e.sessions), base)
 	return e
+}
+
+func (e *oidcAPIEnvironment) failEndpoint(path string, status int, code string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.failurePath, e.failureStatus, e.failureCode = path, status, code
 }
 
 func (e *oidcAPIEnvironment) request(method, target, body string, cookies []*http.Cookie, headers map[string]string) *httptest.ResponseRecorder {

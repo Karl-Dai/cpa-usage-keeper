@@ -26,7 +26,8 @@ func (h *authHandler) oidcLogin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "oidc_public_origin", "error": "Use the configured Keeper public address to sign in"})
 		return
 	}
-	if !h.allowLoginAttempt(c, "oidc:"+loginClientKey(c)) {
+	allowed, retryAfter := h.loginAttempts.AllowPending("oidc:" + loginClientKey(c))
+	if !writeLoginAttemptResult(c, allowed, retryAfter) {
 		return
 	}
 	var request struct {
@@ -101,6 +102,9 @@ func (h *authHandler) oidcCallback(c *gin.Context) {
 	result, err := h.config.OIDC.Complete(c.Request.Context(), state, binding, code, providerError)
 	h.setOIDCBindingCookie(c, state, "", time.Unix(0, 0))
 	if err != nil {
+		if result.AuthenticationFailed {
+			h.loginAttempts.RecordFailure(result.SourceKey)
+		}
 		fail(result.ReturnTo, err)
 		return
 	}
