@@ -13,6 +13,7 @@ import (
 
 	"cpa-usage-keeper/internal/oidc"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 func (h *authHandler) oidcLogin(c *gin.Context) {
@@ -106,6 +107,7 @@ func (h *authHandler) oidcCallback(c *gin.Context) {
 	identity := result.Identity
 	token, expiresAt, err := h.sessions.CreateOIDC(identity.Issuer, identity.Subject, identity.ClientID, oidcDisplayAlias(identity), sessionClientMetadata(c))
 	if err != nil {
+		logrus.WithField("stage", "session").Warn("Unable to create OIDC session")
 		fail(result.ReturnTo, oidc.ErrInvalid)
 		return
 	}
@@ -150,7 +152,8 @@ func (h *authHandler) oidcPublicOriginMatches(c *gin.Context) bool {
 	if c.Request.TLS != nil {
 		scheme = "https"
 	}
-	if h.isTrustedOIDCProxy(c.Request.RemoteAddr) {
+	trustedProxy := h.isTrustedOIDCProxy(c.Request.RemoteAddr)
+	if trustedProxy {
 		if forwarded := c.GetHeader("X-Forwarded-Proto"); forwarded == "http" || forwarded == "https" {
 			scheme = forwarded
 		}
@@ -159,16 +162,42 @@ func (h *authHandler) oidcPublicOriginMatches(c *gin.Context) bool {
 		}
 	}
 	actual, err := url.Parse(scheme + "://" + host)
+	// 仅记录用于比较的 origin；不输出回调查询、Cookie 或未经筛选的代理头。
+	logMismatch := func(reason string, browserOrigin *url.URL) {
+		fields := logrus.Fields{
+			"stage": "public_origin", "reason": reason,
+			"expected_origin": oidcDiagnosticOrigin(expected), "actual_origin": oidcDiagnosticOrigin(actual),
+			"trusted_proxy": trustedProxy,
+		}
+		if c.GetHeader("Origin") != "" {
+			fields["browser_origin"] = oidcDiagnosticOrigin(browserOrigin)
+		}
+		logrus.WithFields(fields).Warn("OIDC public origin mismatch")
+	}
 	if err != nil || publicOIDCOrigin(actual) != publicOIDCOrigin(expected) {
+		browserOrigin, _ := url.Parse(c.GetHeader("Origin"))
+		logMismatch("request_origin_mismatch", browserOrigin)
 		return false
 	}
 	if origin := c.GetHeader("Origin"); origin != "" && origin != publicOIDCOrigin(expected) {
 		parsed, err := url.Parse(origin)
 		if err != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || publicOIDCOrigin(parsed) != publicOIDCOrigin(expected) {
+			logMismatch("browser_origin_mismatch", parsed)
 			return false
 		}
 	}
 	return true
+}
+
+func oidcDiagnosticOrigin(value *url.URL) string {
+	if value == nil || value.Hostname() == "" || (value.Scheme != "http" && value.Scheme != "https") {
+		return "invalid"
+	}
+	origin := publicOIDCOrigin(value)
+	if len(origin) > 300 || strings.IndexFunc(origin, unicode.IsControl) >= 0 {
+		return "invalid"
+	}
+	return origin
 }
 
 func (h *authHandler) isTrustedOIDCProxy(remote string) bool {

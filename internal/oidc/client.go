@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 )
 
@@ -87,6 +88,7 @@ func (c *Client) Begin(ctx context.Context, returnTo string, bindings map[string
 	}
 	authorizationURL, err := url.Parse(p.oauth.AuthCodeURL(txn.State, oauth2.SetAuthURLParam("nonce", txn.Nonce), oauth2.SetAuthURLParam("response_mode", "query"), oauth2.S256ChallengeOption(txn.Verifier)))
 	if err != nil {
+		logFailure("authorization", "invalid_endpoint")
 		return Authorization{}, ErrUnavailable
 	}
 	// prompt 仅由本地开关决定，避免元数据端点已有的同名参数覆盖此策略。
@@ -110,9 +112,11 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 		if providerError == "access_denied" {
 			return result, ErrCanceled
 		}
+		logrus.WithFields(logrus.Fields{"stage": "authorization", "oauth_error": safeOAuthError(providerError)}).Warn("OIDC authorization failed")
 		return result, ErrInvalid
 	}
 	if code == "" || txn.Issuer != c.config.Issuer || txn.ClientID != c.config.ClientID {
+		logFailure("callback", "invalid_authorization_response")
 		return result, ErrInvalid
 	}
 	ctx, cancel := context.WithTimeout(ctx, CallbackTimeout)
@@ -123,34 +127,42 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 	}
 	token, err := p.oauth.Exchange(context.WithValue(ctx, oauth2.HTTPClient, c.http), code, oauth2.VerifierOption(txn.Verifier))
 	if err != nil {
+		logRequestFailure("token", 0, err)
 		return result, ErrUnavailable
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
+		logFailure("id_token", "missing_id_token")
 		return result, ErrInvalid
 	}
 	verified, err := p.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
+		logFailure("id_token", "verification_failed")
 		return result, ErrInvalid
 	}
 	var claims map[string]json.RawMessage
 	if verified.Claims(&claims) != nil || !validClaims(claims, c.config.Issuer, c.config.ClientID, txn.Nonce, time.Now()) {
+		logFailure("id_token", "invalid_claims")
 		return result, ErrInvalid
 	}
 	if verified.Issuer != c.config.Issuer || subtle.ConstantTimeCompare([]byte(verified.Nonce), []byte(txn.Nonce)) != 1 {
+		logFailure("id_token", "issuer_or_nonce_mismatch")
 		return result, ErrInvalid
 	}
 	if verified.AccessTokenHash != "" && (token.AccessToken == "" || verified.VerifyAccessToken(token.AccessToken) != nil) {
+		logFailure("id_token", "access_token_hash_mismatch")
 		return result, ErrInvalid
 	}
 	identity := Identity{Issuer: verified.Issuer, Subject: verified.Subject, ClientID: c.config.ClientID, Name: optionalString(claims, "name"), PreferredUsername: optionalString(claims, "preferred_username"), Email: optionalString(claims, "email")}
 	if !c.config.AllowsSubject(identity.Subject) {
+		logFailure("admission", "subject_not_allowed")
 		return result, ErrDenied
 	}
 	if identity.Name == "" && p.metadata.UserInfoEndpoint != "" && token.AccessToken != "" {
 		userinfo, err := c.userInfo(ctx, p.metadata.UserInfoEndpoint, token.AccessToken)
 		if err == nil {
 			if optionalString(userinfo, "sub") != identity.Subject {
+				logFailure("userinfo", "subject_mismatch")
 				return result, ErrInvalid
 			}
 			identity.Name = optionalString(userinfo, "name")
@@ -167,6 +179,7 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 }
 
 func (c *Client) userInfo(ctx context.Context, endpoint, accessToken string) (map[string]json.RawMessage, error) {
+	// 资料补全失败沿用 ID Token 中的身份；只有 subject 不匹配导致拒绝登录时才记诊断。
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, ErrUnavailable

@@ -103,39 +103,52 @@ func (c *Client) fetchProvider(ctx context.Context, previous *provider) (*provid
 	endpoint := strings.TrimSuffix(c.config.Issuer, "/") + "/.well-known/openid-configuration"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
+		logFailure("discovery", "invalid_request")
 		return nil, ErrUnavailable
 	}
 	response, err := c.http.Do(req)
 	if err != nil {
+		logRequestFailure("discovery", 0, err)
 		return nil, ErrUnavailable
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		logRequestFailure("discovery", response.StatusCode, nil)
 		return nil, ErrUnavailable
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil || len(body) > maxResponseBytes {
+		logFailure("discovery", "response_unreadable_or_too_large")
 		return nil, ErrUnavailable
 	}
 	var m metadata
-	if json.Unmarshal(body, &m) != nil || m.Issuer != c.config.Issuer {
+	if json.Unmarshal(body, &m) != nil {
+		logFailure("discovery", "invalid_json")
+		return nil, ErrUnavailable
+	}
+	if m.Issuer != c.config.Issuer {
+		logFailure("discovery", "issuer_mismatch")
 		return nil, ErrUnavailable
 	}
 	for _, endpoint := range []string{m.AuthorizationEndpoint, m.TokenEndpoint, m.JWKSURI} {
 		if _, err := parseEndpoint(endpoint, true); err != nil {
+			logFailure("discovery", "invalid_endpoint")
 			return nil, ErrUnavailable
 		}
 	}
 	if m.UserInfoEndpoint != "" {
 		if _, err := parseEndpoint(m.UserInfoEndpoint, true); err != nil {
+			logFailure("discovery", "invalid_userinfo_endpoint")
 			return nil, ErrUnavailable
 		}
 	}
 	// 缺失的可选能力采用标准默认；已声明且不相容的能力明确失败。
 	if !slices.Contains(m.ResponseTypes, "code") || !supportsIfPresent(m.ResponseModes, "query") || !supportsIfPresent(m.GrantTypes, "authorization_code") || !supportsIfPresent(m.CodeChallengeMethods, "S256") || !supportsIfPresent(m.Scopes, "openid") {
+		logFailure("discovery", "unsupported_authorization_capabilities")
 		return nil, ErrUnavailable
 	}
 	if len(m.AuthMethods) > 0 && !slices.Contains(m.AuthMethods, "client_secret_basic") && !slices.Contains(m.AuthMethods, "client_secret_post") {
+		logFailure("discovery", "unsupported_client_authentication")
 		return nil, ErrUnavailable
 	}
 	algorithms := make([]string, 0, len(m.SigningAlgorithms))
@@ -145,6 +158,7 @@ func (c *Client) fetchProvider(ctx context.Context, previous *provider) (*provid
 		}
 	}
 	if len(algorithms) == 0 {
+		logFailure("discovery", "unsupported_signing_algorithms")
 		return nil, ErrUnavailable
 	}
 	var keys *coreoidc.RemoteKeySet

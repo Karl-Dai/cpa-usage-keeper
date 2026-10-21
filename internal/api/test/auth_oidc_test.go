@@ -21,6 +21,8 @@ import (
 	keeperapi "cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/oidc"
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 )
 
 type oidcAPIEnvironment struct {
@@ -213,6 +215,47 @@ func TestOIDCAPIPublicHTTPSProxyAndUntrustedForwardedHeaders(t *testing.T) {
 		}
 		if trusted && !response.Result().Cookies()[0].Secure {
 			t.Fatal("public HTTPS proxy lost Secure binding")
+		}
+	}
+}
+
+func TestOIDCAPIOriginDiagnosticOmitsSensitiveQueryAndHeaders(t *testing.T) {
+	originalHooks := logrus.StandardLogger().ReplaceHooks(make(logrus.LevelHooks))
+	hook := logtest.NewGlobal()
+	t.Cleanup(func() { logrus.StandardLogger().ReplaceHooks(originalHooks) })
+	e := newOIDCAPIEnvironment(t, "", "https")
+	for _, trusted := range []bool{false, true} {
+		hook.Reset()
+		req := httptest.NewRequest(http.MethodPost, "http://backend.internal/api/v1/auth/oidc/login?code=private-code", strings.NewReader(`{}`))
+		req.RemoteAddr = "192.0.2.2:12"
+		wantOrigin := "http://backend.internal"
+		if trusted {
+			req.RemoteAddr = "127.0.0.1:12"
+			wantOrigin = "https://wrong.example"
+		}
+		req.Header.Set("X-Forwarded-Host", "wrong.example")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("Authorization", "Bearer private-token")
+		req.Header.Set("Origin", "https://browser.example/path?secret=private-query")
+		req.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
+		response := httptest.NewRecorder()
+		e.router.ServeHTTP(response, req)
+		if response.Code != 400 || !strings.Contains(response.Body.String(), "oidc_public_origin") {
+			t.Fatalf("origin failure response changed: %d %s", response.Code, response.Body.String())
+		}
+		entries := hook.AllEntries()
+		if len(entries) != 1 {
+			t.Fatalf("origin mismatch produced %d logs", len(entries))
+		}
+		fields := entries[0].Data
+		if fields["expected_origin"] != "https://keeper.example" || fields["actual_origin"] != wantOrigin || fields["browser_origin"] != "https://browser.example" || fields["trusted_proxy"] != trusted {
+			t.Fatalf("origin diagnostic = %+v", fields)
+		}
+		encoded, _ := json.Marshal(fields)
+		for _, secret := range []string{"private-code", "private-token", "private-query"} {
+			if strings.Contains(string(encoded), secret) || strings.Contains(response.Body.String(), secret) {
+				t.Fatalf("sensitive value leaked: %s", secret)
+			}
 		}
 	}
 }

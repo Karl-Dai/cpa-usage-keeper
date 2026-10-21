@@ -491,6 +491,8 @@ Keeper 使用标准 Discovery、JWKS、`openid profile email`、有签名的 ID 
 
 推荐 Issuer、元数据端点和 Keeper 均使用 HTTPS。明确配置的 HTTP 地址直接生效，无需额外开关，也不限于 localhost；HTTP Discovery/JWKS 无法保护身份信任起点，HTTP Keeper Cookie 没有传输加密。HTTPS 失败不会自动降级 HTTP 或跳过证书验证。内部 CA 需要加入服务使用的受信任证书链。配置或元数据使用 HTTP 时会记录提示；HTTP 支持是对 Discovery 的 HTTPS 要求的兼容扩展，不会让明文链路获得传输安全。
 
+Issuer 使用平台公布的身份地址，须与 Discovery 和 ID Token 的 `iss` 精确一致。Keeper 服务端需要能访问 Discovery、Token 和 JWKS 端点，浏览器需要能访问授权端点；这些端点不要求同一主机。除非平台本身公布的身份地址就是容器内部地址，否则不能将 Issuer 随意替换为内部地址。
+
 请从与回调相同的公开 origin 打开 Keeper。HTTPS 反向代理应保留公开 `Host` 和 `X-Forwarded-Proto`（或提供 `X-Forwarded-Host`），并在 `TRUSTED_PROXY_CIDRS` 中配置实际代理网段。API Key 页签和 CPAMC 嵌入模式不显示 OIDC。登录成功会恢复合法的站内页面及查询参数。未完成登录保存在当前进程内，五分钟过期；重启中断的登录可以重新点击按钮发起。请在代理访问日志中过滤回调查询参数，其中包含短期授权码和 state。
 
 登录后的会话沿用 `AUTH_SESSION_TTL`，在会话管理中显示 **OIDC 登录**。退出只撤销 Keeper 本地会话；当 `AUTH_OIDC_PROMPT_LOGIN=false` 时，再次登录仍可能由身份平台自动认证。关闭 OIDC、切换 Issuer/Client ID 或收紧 subject 列表后，配置随重启生效，在业务就绪前永久撤销受影响会话，无需旧浏览器再次访问或打开会话管理页；仅更换客户端密钥不会撤销现有会话。平台侧删号或收紧访问权限不会自动撤销 Keeper 已有会话，需要在会话管理中撤销或等待 TTL 到期。回退到不支持 OIDC 的 Keeper 版本前，先用新版本撤销所有 OIDC 会话，再停止 Keeper 并替换程序；新增可空数据库列可以保留。

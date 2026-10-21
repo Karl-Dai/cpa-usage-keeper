@@ -1,0 +1,220 @@
+package test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"cpa-usage-keeper/internal/oidc"
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
+)
+
+func captureOIDCLogs(t *testing.T) *logtest.Hook {
+	t.Helper()
+	logger := logrus.StandardLogger()
+	hooks, level := logger.ReplaceHooks(make(logrus.LevelHooks)), logger.GetLevel()
+	logger.SetLevel(logrus.InfoLevel)
+	t.Cleanup(func() { logger.ReplaceHooks(hooks); logger.SetLevel(level) })
+	return logtest.NewGlobal()
+}
+
+func requireOIDCDiagnostic(t *testing.T, hook *logtest.Hook, stage, reason string, status int, oauthError string, secrets ...string) {
+	t.Helper()
+	found := false
+	for _, entry := range hook.AllEntries() {
+		data, err := json.Marshal(entry.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, secret := range secrets {
+			if strings.Contains(string(data)+entry.Message, secret) {
+				t.Fatalf("diagnostic contains sensitive value %q", secret)
+			}
+		}
+		if entry.Data["stage"] != stage {
+			continue
+		}
+		found = true
+		if reason != "" && entry.Data["reason"] != reason || status != 0 && entry.Data["http_status"] != status || oauthError != "" && entry.Data["oauth_error"] != oauthError {
+			t.Fatalf("unexpected diagnostic: %+v", entry.Data)
+		}
+	}
+	if !found {
+		t.Fatalf("missing %s diagnostic", stage)
+	}
+}
+
+func TestOIDCDiscoveryLogsOneFailureDuringBackoff(t *testing.T) {
+	hook := captureOIDCLogs(t)
+	m := newMockIDP(t, false, "")
+	m.failDiscovery = true
+	client := m.client(t, nil)
+	for range 3 {
+		if _, err := client.Begin(context.Background(), "/", nil, ""); !errors.Is(err, oidc.ErrUnavailable) {
+			t.Fatalf("discovery error = %v", err)
+		}
+	}
+	requireOIDCDiagnostic(t, hook, "discovery", "unexpected_http_status", 503, "", "secret upstream error")
+	if len(hook.AllEntries()) != 1 || m.discoveries.Load() != 1 {
+		t.Fatal("cached discovery failure produced repeated requests or diagnostics")
+	}
+}
+
+func TestOIDCTokenDiagnosticsDoNotExposeProviderPayload(t *testing.T) {
+	for _, code := range []string{"invalid_client", "invalid_grant", "server_error", "private-error-value"} {
+		t.Run(code, func(t *testing.T) {
+			hook := captureOIDCLogs(t)
+			failure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": "sensitive-description", "error_uri": "https://example.com/private-uri", "access_token": "private-token"})
+			}))
+			defer failure.Close()
+			m := newMockIDP(t, false, "")
+			m.metadata = func(metadata map[string]any) { metadata["token_endpoint"] = failure.URL + "?secret=query-secret" }
+			client := m.client(t, nil)
+			authorization, err := client.Begin(context.Background(), "/", nil, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = client.Complete(context.Background(), authorization.State, authorization.Binding, m.code(t, authorization), ""); !errors.Is(err, oidc.ErrUnavailable) {
+				t.Fatalf("frontend error classification changed: %v", err)
+			}
+			wantCode := code
+			if code == "private-error-value" {
+				wantCode = "unrecognized_error"
+			}
+			requireOIDCDiagnostic(t, hook, "token", "token_response_rejected", 400, wantCode,
+				"sensitive-description", "private-uri", "private-token", "query-secret", "private-error-value", authorization.State, authorization.Binding)
+		})
+	}
+}
+
+func TestOIDCAuthorizationDiagnosticsRequireBrowserBinding(t *testing.T) {
+	hook := captureOIDCLogs(t)
+	m := newMockIDP(t, false, "")
+	client := m.client(t, nil)
+	authorization, err := client.Begin(context.Background(), "/", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook.Reset()
+	if _, err := client.Complete(context.Background(), authorization.State, "wrong-browser", "", "private-error-value"); !errors.Is(err, oidc.ErrInvalid) {
+		t.Fatal(err)
+	}
+	if len(hook.AllEntries()) != 0 {
+		t.Fatal("unbound callback was treated as a provider response")
+	}
+	if _, err := client.Complete(context.Background(), authorization.State, authorization.Binding, "", "private-error-value"); !errors.Is(err, oidc.ErrInvalid) {
+		t.Fatal(err)
+	}
+	requireOIDCDiagnostic(t, hook, "authorization", "", 0, "unrecognized_error", "private-error-value", authorization.State, authorization.Binding)
+	authorization, err = client.Begin(context.Background(), "/", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook.Reset()
+	if _, err := client.Complete(context.Background(), authorization.State, authorization.Binding, "", "access_denied"); !errors.Is(err, oidc.ErrCanceled) {
+		t.Fatal(err)
+	}
+	if len(hook.AllEntries()) != 0 {
+		t.Fatal("canceling authorization produced a diagnostic")
+	}
+}
+
+func TestOIDCJWKSAndUserInfoDiagnosticsPreserveLoginBehavior(t *testing.T) {
+	for _, endpoint := range []string{"jwks_uri", "userinfo_endpoint"} {
+		t.Run(endpoint, func(t *testing.T) {
+			hook := captureOIDCLogs(t)
+			failure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "sensitive-upstream-body", 503)
+			}))
+			defer failure.Close()
+			m := newMockIDP(t, false, "")
+			m.metadata = func(metadata map[string]any) { metadata[endpoint] = failure.URL + "?token=private-token" }
+			m.claims = func(claims map[string]any) { delete(claims, "name") }
+			result, err := loginMock(t, m, m.client(t, nil))
+			wantFailures := 1
+			if endpoint == "userinfo_endpoint" {
+				wantFailures = 0
+				if err != nil || result.Identity.Subject != "Subject,A" {
+					t.Fatalf("optional UserInfo failure blocked login: %+v, %v", result, err)
+				}
+			} else if !errors.Is(err, oidc.ErrInvalid) {
+				t.Fatalf("JWKS error changed: %v", err)
+			} else {
+				requireOIDCDiagnostic(t, hook, "id_token", "verification_failed", 0, "", "sensitive-upstream-body", "private-token")
+			}
+			failures := 0
+			for _, entry := range hook.AllEntries() {
+				if entry.Data["stage"] != nil {
+					failures++
+				}
+			}
+			if failures != wantFailures {
+				t.Fatalf("diagnostic count = %d, want %d", failures, wantFailures)
+			}
+		})
+	}
+}
+
+func TestOIDCDiscoveryDiagnosticsClassifyTLSAndMetadataFailures(t *testing.T) {
+	for _, scenario := range []string{"tls", "issuer", "capability"} {
+		t.Run(scenario, func(t *testing.T) {
+			hook := captureOIDCLogs(t)
+			m := newMockIDP(t, scenario == "tls", "")
+			wantReason := "tls_certificate_invalid"
+			if scenario == "issuer" {
+				m.metadata = func(metadata map[string]any) { metadata["issuer"] = "https://private-issuer.example" }
+				wantReason = "issuer_mismatch"
+			} else if scenario == "capability" {
+				m.metadata = func(metadata map[string]any) { metadata["response_types_supported"] = []string{"id_token"} }
+				wantReason = "unsupported_authorization_capabilities"
+			}
+			client, err := oidc.NewClient(oidc.Config{Issuer: m.issuer, ClientID: "keeper", ClientSecret: "private-secret", RedirectURL: "http://keeper.example/api/v1/auth/oidc/callback"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.Begin(context.Background(), "/", nil, ""); !errors.Is(err, oidc.ErrUnavailable) {
+				t.Fatal(err)
+			}
+			requireOIDCDiagnostic(t, hook, "discovery", wantReason, 0, "", "private-issuer.example", "private-secret")
+		})
+	}
+}
+
+type canceledTokenTransport struct {
+	base http.RoundTripper
+}
+
+func (t canceledTokenTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Path == "/token" {
+		return nil, context.Canceled
+	}
+	return t.base.RoundTrip(request)
+}
+
+func TestOIDCCanceledTokenRequestDoesNotLogAnUpstreamFailure(t *testing.T) {
+	hook := captureOIDCLogs(t)
+	m := newMockIDP(t, false, "")
+	client, err := oidc.NewClient(oidc.Config{Issuer: m.issuer, ClientID: "keeper", ClientSecret: "secret", RedirectURL: "http://keeper.example/api/v1/auth/oidc/callback"}, &http.Client{Transport: canceledTokenTransport{base: http.DefaultTransport}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorization, err := client.Begin(context.Background(), "/", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook.Reset()
+	if _, err := client.Complete(context.Background(), authorization.State, authorization.Binding, m.code(t, authorization), ""); !errors.Is(err, oidc.ErrUnavailable) {
+		t.Fatalf("frontend error classification changed: %v", err)
+	}
+	if len(hook.AllEntries()) != 0 {
+		t.Fatal("canceled request produced an upstream failure log")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"cpa-usage-keeper/internal/entities"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -15,6 +16,7 @@ func (s *GormSessionStore) RevokeInvalidOIDCSessions(policy OIDCSessionPolicy) (
 		return 0, fmt.Errorf("auth session store is not configured")
 	}
 	var deleted int64
+	var identityInvalid, subjectDenied int64
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// 来源索引限定 OIDC；基础身份不匹配时直接批量删除，不加载会话列表或活动元数据。
 		invalid := tx.Where("source = ?", string(SessionSourceOIDC))
@@ -29,6 +31,9 @@ func (s *GormSessionStore) RevokeInvalidOIDCSessions(policy OIDCSessionPolicy) (
 			return result.Error
 		}
 		deleted += result.RowsAffected
+		if policy.Enabled {
+			identityInvalid = result.RowsAffected
+		}
 		if !policy.Enabled || len(policy.AllowedSubjects) == 0 {
 			return nil
 		}
@@ -52,6 +57,7 @@ func (s *GormSessionStore) RevokeInvalidOIDCSessions(policy OIDCSessionPolicy) (
 			}
 			result := tx.Unscoped().Where("source = ? AND token_hash IN ?", string(SessionSourceOIDC), hashes).Delete(&entities.AuthSession{})
 			deleted += result.RowsAffected
+			subjectDenied += result.RowsAffected
 			hashes = hashes[:0]
 			return result.Error
 		}
@@ -70,6 +76,18 @@ func (s *GormSessionStore) RevokeInvalidOIDCSessions(policy OIDCSessionPolicy) (
 	})
 	if err != nil {
 		return 0, err
+	}
+	// 事务提交后才报告真实撤销数量；复用删除结果，不增加查询或输出会话身份。
+	if deleted > 0 {
+		fields := logrus.Fields{"revoked": deleted}
+		if !policy.Enabled {
+			fields["reason"] = "oidc_disabled"
+		} else {
+			fields["reason"] = "session_policy_mismatch"
+			fields["identity_invalid"] = identityInvalid
+			fields["subject_denied"] = subjectDenied
+		}
+		logrus.WithFields(fields).Info("Revoked OIDC sessions during startup")
 	}
 	return deleted, nil
 }

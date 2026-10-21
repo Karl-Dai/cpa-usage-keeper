@@ -7,6 +7,8 @@ import (
 
 	"cpa-usage-keeper/internal/auth"
 	"cpa-usage-keeper/internal/entities"
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 )
 
 func TestOIDCStartupCleanupIdentityAndSubjectBoundaries(t *testing.T) {
@@ -52,6 +54,9 @@ func TestOIDCStartupCleanupIdentityAndSubjectBoundaries(t *testing.T) {
 }
 
 func TestOIDCStartupCleanupBatchesAndRollsBack(t *testing.T) {
+	originalHooks := logrus.StandardLogger().ReplaceHooks(make(logrus.LevelHooks))
+	hook := logtest.NewGlobal()
+	t.Cleanup(func() { logrus.StandardLogger().ReplaceHooks(originalHooks) })
 	db := openSessionDatabase(t)
 	store := auth.NewGormSessionStore(db)
 	policy := auth.OIDCSessionPolicy{Enabled: true, Issuer: "issuer", ClientID: "keeper", AllowedSubjects: []string{"allowed"}}
@@ -73,6 +78,11 @@ func TestOIDCStartupCleanupBatchesAndRollsBack(t *testing.T) {
 	if deleted, err := store.RevokeInvalidOIDCSessions(policy); err == nil || deleted != 0 {
 		t.Fatalf("cleanup = %d, %v", deleted, err)
 	}
+	for _, entry := range hook.AllEntries() {
+		if entry.Message == "Revoked OIDC sessions during startup" {
+			t.Fatal("rolled-back cleanup was logged as successful revocation")
+		}
+	}
 	var count int64
 	if err := db.Model(&entities.AuthSession{}).Count(&count).Error; err != nil || count != 451 {
 		t.Fatalf("failed cleanup did not roll back: %d, %v", count, err)
@@ -85,6 +95,19 @@ func TestOIDCStartupCleanupBatchesAndRollsBack(t *testing.T) {
 	}
 	if deleted, err := store.RevokeInvalidOIDCSessions(policy); err != nil || deleted != 0 {
 		t.Fatalf("repeated cleanup = %d, %v", deleted, err)
+	}
+	revocations := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Message != "Revoked OIDC sessions during startup" {
+			continue
+		}
+		revocations++
+		if entry.Data["revoked"] != int64(450) || entry.Data["identity_invalid"] != int64(1) || entry.Data["subject_denied"] != int64(449) || len(entry.Data) != 4 {
+			t.Fatalf("unexpected cleanup summary: %+v", entry.Data)
+		}
+	}
+	if revocations != 1 {
+		t.Fatalf("cleanup summary count = %d, want one across rollback, success and no-op", revocations)
 	}
 	// 恢复原准入规则也不能复活已撤销 token；无需调用管理列表或旧 token 的鉴权路径来触发删除。
 	manager := auth.NewPersistentSessionManager(time.Hour, store)
