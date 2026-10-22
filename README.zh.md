@@ -150,9 +150,11 @@ web/                     React + TypeScript 前端
 ### 前置依赖
 
 - Go 1.26.10+
-- Node.js 24+
+- Node.js 24.22.1+
 - npm
 - 一个可用的 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 实例
+
+如果使用 nvm，在仓库根目录运行 `nvm use`，即可切换到 `.nvmrc` 指定的版本。
 
 ### 本地运行
 
