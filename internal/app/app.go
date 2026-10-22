@@ -207,7 +207,7 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
 	// 单条凭证开关成功后立即与 CPA 对齐；runner 自带合并窗口和 nil 保护。
 	credentialMutationLocks := &service.CredentialMutationLocks{}
-	authFilesManagementService := service.NewAuthFilesManagementService(cpaClient, credentialMutationLocks)
+	credentialsManagementService := service.NewCredentialsManagementService(cpaClient, credentialMutationLocks)
 	credentialStatusService := service.NewCredentialStatusService(db, cpaClient, metadataSyncRunner, credentialMutationLocks)
 	credentialPriorityService := service.NewCredentialPriorityService(db, cpaClient, metadataSyncRunner, credentialMutationLocks)
 	if cfg.TLSSkipVerify {
@@ -274,8 +274,8 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 				ErrorEvents:   errorEventService,
 				Quota:         quotaService,
 				CPAAPIKeys:    cpaAPIKeyService,
-				AuthFiles:     authFilesManagementService,
-				// 认证文件与 AI 供应商共用一个 service，路由层按类型分发。
+				Credentials:   credentialsManagementService,
+				// 凭证与 AI 供应商共用一个 service，路由层按类型分发。
 				CredentialStatus:   credentialStatusService,
 				CredentialPriority: credentialPriorityService,
 				RequestLogs:        requestLogService,
