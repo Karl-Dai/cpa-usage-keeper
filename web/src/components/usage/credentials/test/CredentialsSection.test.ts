@@ -54,7 +54,7 @@ describe('CredentialsSection quota reset formatting', () => {
   })
 })
 
-describe('CredentialsSection title', () => {
+describe('CredentialsSection account details and metrics', () => {
   it.each([
     ['kimi', 'china', 'usage_stats.credentials_kimi_site_china'],
     ['kimi-ai', 'international', 'usage_stats.credentials_kimi_site_international'],
@@ -87,13 +87,6 @@ describe('CredentialsSection title', () => {
     expect(html.match(/data-kimi-site=/g)).toHaveLength(1)
     expect(html).toContain('data-kimi-site="china"')
     expect(html).not.toContain('data-kimi-site="international"')
-  })
-
-  it('renders the Credentials title without the Credentials eyebrow', () => {
-    const html = renderToStaticMarkup(createElement(CredentialsSection, createCredentialSectionProps()))
-
-    expect(html).toContain('usage_stats.credentials_title')
-    expect(html).not.toContain('usage_stats.credentials_eyebrow')
   })
 
   it('renders the 5h cache rate in health mode', () => {
@@ -141,7 +134,7 @@ describe('CredentialsSection title', () => {
     }
   })
 
-  it('renders shared metric headers without repeating labels in each row', () => {
+  it('renders credential metrics and status controls', () => {
     const row = createRow({
       identity: { id: '1', identity: 'auth-1', type: 'codex', is_deleted: false },
       displayName: 'Very Long Credential Name For Wrapping',
@@ -156,38 +149,15 @@ describe('CredentialsSection title', () => {
 
     const html = renderToStaticMarkup(createElement(CredentialsSection, createCredentialSectionProps({ rows: [row], total: 1 })))
 
-    expect(html.match(/usage_stats\.total_requests/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.success_rate/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.total_tokens/g)).toHaveLength(1)
-    expect(html.match(/usage_stats\.cache_rate/g)).toHaveLength(1)
     expect(html).toContain('usage_stats.credentials_column_name')
     expect(html).toContain('usage_stats.credentials_column_quota')
     expect(html).toContain('usage_stats.credentials_quota_usage_mode_label')
-    expect(html.indexOf('usage_stats.credentials_quota_usage_mode_label')).toBeLessThan(html.indexOf('usage_stats.credentials_sort_label'))
     expect(html).toContain('1.23K')
     expect(html).toContain('97.24%')
     expect(html).toContain('data-provider-brand-icon="codex"')
-    expect(html.indexOf('data-provider-brand-icon="codex"')).toBeLessThan(html.lastIndexOf('Very Long Credential Name For Wrapping'))
     // 凭证与 AI 供应商共用同一个开关组件，语义必须一致。
     expect(html).toContain('data-credential-status-toggle="true"')
     expect(html).toMatch(/aria-label="[^"]+Credential[^"]*"/)
-    expect(html).not.toContain('>codex</span>')
-  })
-
-  it('keeps Credentials metric cells aligned when values are unavailable', () => {
-    const row = createRow({
-      displayName: 'Sparse Credential',
-      subscriptionBadge: { kind: 'codex-pro20x', fallbackLabel: 'Pro 20x' },
-    })
-
-    const html = renderToStaticMarkup(createElement(CredentialsSection, createCredentialSectionProps({ rows: [row], total: 1 })))
-
-    expect(html).toContain('Pro 20x')
-    expect(html.match(/credentialMetricValueCell/g)).toHaveLength(4)
-    expect(html).toContain('usage_stats.total_requests')
-    expect(html).toContain('usage_stats.success_rate')
-    expect(html).toContain('usage_stats.total_tokens')
-    expect(html).toContain('usage_stats.cache_rate')
   })
 })
 

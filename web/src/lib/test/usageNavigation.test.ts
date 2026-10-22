@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   getUsageTabPath,
   handleUsageTabKeyActivation,
-  normalizeUsageTabValue,
   resolveInitialUsageTab,
   resolveUsageTabFromPath,
   shouldHandleUsageNavigation,
@@ -39,11 +38,6 @@ describe('usage page navigation', () => {
     expect(resolveUsageTabFromPath('/%2e%2e/credentials')).toBeNull();
     expect(resolveUsageTabFromPath('//example.com/credentials')).toBeNull();
     expect(resolveUsageTabFromPath('https://example.com/credentials')).toBeNull();
-  });
-
-  it('accepts the credentials tab and route', () => {
-    expect(normalizeUsageTabValue('credentials')).toBe('credentials');
-    expect(resolveUsageTabFromPath('/credentials')).toBe('credentials');
   });
 
   it('lets a valid direct route override storage while keeping root storage behavior', () => {

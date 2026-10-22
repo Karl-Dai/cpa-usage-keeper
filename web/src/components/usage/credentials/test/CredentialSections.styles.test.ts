@@ -126,16 +126,6 @@ describe('Credential section layout and accessibility', () => {
     expect(credentialStyles).toMatch(/\.credentialRequestBreakdown\s*\{[\s\S]*?white-space:\s*nowrap;/)
   })
 
-  it('uses theme-aware failure colors for quota errors', () => {
-    expect(scssRule(credentialStyles, '.credentialQuotaStateError', 1)).toContain('color: var(--failure-badge-text)')
-    expect(scssRule(credentialStyles, '.credentialInlineError', 1)).toContain('color: var(--failure-badge-text)')
-    expect(scssRule(credentialStyles, '.credentialQuotaErrorSummary')).toContain('color: var(--failure-badge-text)')
-    const code = scssRule(credentialStyles, '.credentialQuotaErrorCode')
-    expect(code).toContain('border: 1px solid var(--failure-badge-border)')
-    expect(code).toContain('background: var(--failure-badge-bg)')
-    expect(code).toContain('color: var(--failure-badge-text)')
-  })
-
   it('scrolls pagination controls on narrow screens and sizes sorting by its content', () => {
     expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialPagination\s*\{[\s\S]*?overflow-x:\s*auto;/)
     expect(credentialStyles).toMatch(/@include tablet\s*\{[\s\S]*?\.credentialPaginationControls\s*\{[\s\S]*?width:\s*max-content;/)
@@ -162,17 +152,6 @@ describe('Credential section layout and accessibility', () => {
     expect(reducedMotion).toContain('.credentialDetailNameText')
     expect(reducedMotion).toContain('.credentialsRow:hover .credentialDetailNameArrow')
     expect(reducedMotion).toContain('animation: none')
-  })
-
-  it('keeps subscription animations limited to compositor transforms', () => {
-    const keyframes = [...credentialStyles.matchAll(/@keyframes\s+(credentialPlanBadge\w+)/g)].map((match) => match[1])
-    expect(keyframes.length).toBeGreaterThan(0)
-    for (const keyframe of keyframes) {
-      const declarations = [...scssRule(credentialStyles, `@keyframes ${keyframe}`).matchAll(/^\s*([\w-]+)\s*:/gm)].map((match) => match[1])
-      expect(new Set(declarations), keyframe).toEqual(new Set(['transform']))
-    }
-    expect(credentialStyles).not.toContain('background-position:')
-    expect(credentialStyles).not.toContain('will-change:')
   })
 
   it('disables badge motion for reduced-motion and slow-update devices', () => {

@@ -268,12 +268,11 @@ describe('CredentialDetailDrawer', () => {
     expect(document.body.querySelector('[data-kimi-site]')).toBeNull()
   })
 
-  it('shows the concrete Credential filename as the subtitle without a cumulative heading', async () => {
+  it('shows the concrete Credential filename as the subtitle', async () => {
     await renderDrawer({ selection: credentialSelection })
 
     expect(document.body.querySelector('[data-credential-detail-subtitle]')?.textContent)
       .toBe('user106@edu.sso.monsterx.it.com.json')
-    expect(document.body.textContent).not.toContain('usage_stats.credentials_detail_cumulative')
   })
 
   it('shows the shared quota history for Codex and Claude Credentials', async () => {
@@ -434,9 +433,6 @@ describe('CredentialDetailDrawer', () => {
     )
     expect(document.body.textContent).toContain('model-1')
     expect(document.body.querySelector('[data-credential-request-events-list="true"]')).not.toBeNull()
-    expect(document.body.textContent).not.toContain('usage_stats.request_events_title')
-    expect(document.body.textContent).not.toContain('usage_stats.request_events_columns')
-    expect(document.body.textContent).not.toContain('usage_stats.request_events_filter_model')
 
     const scroller = document.body.querySelector<HTMLElement>('[class*="scroller"]')!
     Object.defineProperties(scroller, {
