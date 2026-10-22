@@ -151,7 +151,7 @@ func seedRedisProcessBenchmarkIdentities(b *testing.B, db *gorm.DB, identityCoun
 		identities = append(identities, entities.UsageIdentity{
 			Name:         identity,
 			AuthType:     entities.UsageIdentityAuthTypeCredential,
-			AuthTypeName: "auth_file",
+			AuthTypeName: "oauth",
 			Identity:     identity,
 			Type:         "codex",
 			Provider:     "codex",

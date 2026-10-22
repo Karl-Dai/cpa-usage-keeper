@@ -29,7 +29,7 @@ import (
 
 const usageEventInsertColumns = entities.UsageEventStorageColumns
 
-const DatasetGeneratorVersion = "production-v10-pricing-storage"
+const DatasetGeneratorVersion = "production-v11-credential-metadata"
 
 type GenerateOptions struct {
 	Path              string
@@ -295,7 +295,7 @@ func seedDatasetMetadata(db *gorm.DB, options GenerateOptions) ([]identityProfil
 	identityProfiles := make([]identityProfile, 0, options.Cardinality.Identities)
 	for index := 1; index <= options.Cardinality.Identities; index++ {
 		authType := entities.UsageIdentityAuthTypeCredential
-		authTypeName := "auth_file"
+		authTypeName := "oauth"
 		provider := "codex"
 		eventAuthType := "oauth"
 		if index%4 == 0 {
