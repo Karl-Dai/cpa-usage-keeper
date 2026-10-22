@@ -471,13 +471,13 @@ cp .env.example .env
 | `REQUEST_TIMEOUT` | 否 | `30s` | 请求 CPA HTTP 接口和 Redis 队列的超时时间 |
 | `TLS_SKIP_VERIFY` | 否 | `false` | 跳过 CPA HTTPS 和 Redis 队列 TLS 的证书验证；仅在使用自签名证书时启用 |
 
-### Auth Files 限额刷新
+### Credentials 限额刷新
 
-Auth Files 定时限额刷新在 Auth Files 巡检弹窗的小齿轮中配置。设置保存在本地 SQLite，不依赖页面保持打开。
+Credentials 定时限额刷新在 Credentials 巡检弹窗的小齿轮中配置。设置保存在本地 SQLite，不依赖页面保持打开。
 
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `QUOTA_REFRESH_WORKER_LIMIT` | 否 | `10` | 手动刷新和定时刷新共用的 Auth Files 限额刷新队列最大并发数，最大 `100` |
+| `QUOTA_REFRESH_WORKER_LIMIT` | 否 | `10` | 手动刷新和定时刷新共用的 Credentials 限额刷新队列最大并发数，最大 `100` |
 | `QUOTA_UPSTREAM_RESPONSES_ENABLED` | 否 | `false` | 缓存每个凭证最近一次限额查询的原始上游响应，并通过 quota task/cache API 返回，供浏览器 Network 面板排障；响应可能包含账号数据 |
 
 ### Redis 队列高级配置
