@@ -342,6 +342,7 @@ func TestOIDCBrowserBindingSingleConsumptionAndPKCE(t *testing.T) {
 }
 
 func TestOIDCMetadataFailureBackoffAndCanceledWaiter(t *testing.T) {
+	hook := captureOIDCLogs(t)
 	m := newMockIDP(t, false, "")
 	m.failDiscovery = true
 	client := m.client(t, nil)
@@ -350,8 +351,9 @@ func TestOIDCMetadataFailureBackoffAndCanceledWaiter(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if m.discoveries.Load() != 1 {
-		t.Fatalf("failed discovery did not back off: %d", m.discoveries.Load())
+	requireOIDCDiagnostic(t, hook, "discovery", "unexpected_http_status", 503, "", "secret upstream error")
+	if m.discoveries.Load() != 1 || len(hook.AllEntries()) != 1 {
+		t.Fatal("cached discovery failure produced repeated requests or diagnostics")
 	}
 	m = newMockIDP(t, false, "")
 	client = m.client(t, nil)
@@ -366,24 +368,32 @@ func TestOIDCMetadataFailureBackoffAndCanceledWaiter(t *testing.T) {
 func TestOIDCMetadataRejectsExplicitUnsupportedCapabilities(t *testing.T) {
 	for field, value := range map[string]any{"issuer": "https://other.example", "token_endpoint_auth_methods_supported": []string{"none"}, "code_challenge_methods_supported": []string{"plain"}, "id_token_signing_alg_values_supported": []string{"HS256", "none"}, "response_types_supported": []string{"id_token"}, "response_modes_supported": []string{"form_post"}, "grant_types_supported": []string{"client_credentials"}, "jwks_uri": "file:///keys"} {
 		t.Run(field, func(t *testing.T) {
+			hook := captureOIDCLogs(t)
 			m := newMockIDP(t, false, "")
 			m.metadata = func(c map[string]any) { c[field] = value }
-			if _, err := m.client(t, nil).Begin(context.Background(), "/", nil, ""); err == nil {
-				t.Fatal("unsupported metadata accepted")
+			if _, err := m.client(t, nil).Begin(context.Background(), "/", nil, ""); !errors.Is(err, oidc.ErrUnavailable) {
+				t.Fatalf("unsupported metadata = %v", err)
+			}
+			if field == "issuer" {
+				requireOIDCDiagnostic(t, hook, "discovery", "issuer_mismatch", 0, "", "other.example", "secret")
+			} else if field == "response_types_supported" {
+				requireOIDCDiagnostic(t, hook, "discovery", "unsupported_authorization_capabilities", 0, "", "secret")
 			}
 		})
 	}
 }
 
 func TestOIDCTransportRejectsUntrustedTLSAndCredentialRedirect(t *testing.T) {
+	hook := captureOIDCLogs(t)
 	m := newMockIDP(t, true, "")
 	client, err := oidc.NewClient(oidc.Config{Issuer: m.issuer, ClientID: "keeper", ClientSecret: "secret", RedirectURL: "http://keeper.example/api/v1/auth/oidc/callback"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Begin(context.Background(), "/", nil, ""); err == nil {
-		t.Fatal("untrusted TLS accepted")
+	if _, err := client.Begin(context.Background(), "/", nil, ""); !errors.Is(err, oidc.ErrUnavailable) {
+		t.Fatalf("untrusted TLS = %v", err)
 	}
+	requireOIDCDiagnostic(t, hook, "discovery", "tls_certificate_invalid", 0, "", "secret")
 	var leaked atomic.Bool
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { leaked.Store(true); w.WriteHeader(500) }))
 	defer receiver.Close()
@@ -546,7 +556,7 @@ func TestOIDCDiscoveryConcurrentRefreshAndExpiredFailure(t *testing.T) {
 	}
 }
 
-func TestOIDCExternalTimeoutAndUserInfoFailureFallback(t *testing.T) {
+func TestOIDCExternalTimeout(t *testing.T) {
 	m := newMockIDP(t, false, "")
 	stalled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -568,18 +578,6 @@ func TestOIDCExternalTimeoutAndUserInfoFailureFallback(t *testing.T) {
 	}
 	if time.Since(started) > time.Second {
 		t.Fatal("external timeout was not bounded")
-	}
-	m = newMockIDP(t, false, "")
-	m.claims = func(claims map[string]any) { delete(claims, "name"); claims["preferred_username"] = "fallback" }
-	failure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(503)
-		_, _ = w.Write([]byte("private upstream response"))
-	}))
-	defer failure.Close()
-	m.metadata = func(meta map[string]any) { meta["userinfo_endpoint"] = failure.URL }
-	result, err := loginMock(t, m, m.client(t, nil))
-	if err != nil || result.Identity.Subject != "Subject,A" || result.Identity.PreferredUsername != "fallback" {
-		t.Fatalf("optional UserInfo failure rejected identity: %+v %v", result, err)
 	}
 }
 

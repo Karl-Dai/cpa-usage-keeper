@@ -375,14 +375,21 @@ func TestOIDCAPIBrowserCapacityUsesAllExistingBindingCookies(t *testing.T) {
 func TestOIDCAPISuccessResetsOriginalLoginSourceAfterCallbackIPChanges(t *testing.T) {
 	e := newOIDCAPIEnvironment(t, "", "http")
 	for range 7 {
+		// 先留下失败记录，才能验证成功回调确实清零了发起地址的计数。
+		failed, failedBinding := e.begin(t, "/")
+		failure := "/api/v1/auth/oidc/callback?" + url.Values{"state": {failed.Get("state")}, "code": {"invalid-code"}}.Encode()
+		response := e.request(http.MethodGet, failure, "", []*http.Cookie{failedBinding}, nil)
+		if response.Code != http.StatusSeeOther || !strings.Contains(response.Header().Get("Location"), "oidc_error=") {
+			t.Fatalf("invalid code callback = %d", response.Code)
+		}
 		query, binding := e.begin(t, "/")
 		req := httptest.NewRequest(http.MethodGet, e.public+"/api/v1/auth/oidc/callback?state="+query.Get("state")+"&code=code-"+query.Get("state"), nil)
 		req.RemoteAddr = "192.0.2.99:1234"
 		req.AddCookie(binding)
-		response := httptest.NewRecorder()
+		response = httptest.NewRecorder()
 		e.router.ServeHTTP(response, req)
 		if response.Code != 303 || response.Header().Get("Location") != "/" {
-			t.Fatalf("successful login still counts as failure: %d %s", response.Code, response.Header().Get("Location"))
+			t.Fatalf("successful login did not reset original source failures: %d %s", response.Code, response.Header().Get("Location"))
 		}
 	}
 }

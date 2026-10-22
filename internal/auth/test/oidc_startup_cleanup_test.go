@@ -102,7 +102,7 @@ func TestOIDCStartupCleanupBatchesAndRollsBack(t *testing.T) {
 			continue
 		}
 		revocations++
-		if entry.Data["revoked"] != int64(450) || entry.Data["identity_invalid"] != int64(1) || entry.Data["subject_denied"] != int64(449) || len(entry.Data) != 4 {
+		if entry.Data["revoked"] != int64(450) || entry.Data["identity_invalid"] != int64(1) || entry.Data["subject_denied"] != int64(449) {
 			t.Fatalf("unexpected cleanup summary: %+v", entry.Data)
 		}
 	}

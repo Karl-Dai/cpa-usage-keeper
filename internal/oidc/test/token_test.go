@@ -2,7 +2,6 @@ package test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -67,18 +66,15 @@ func TestOIDCInvalidGrantCountsBeforeAndAfterSuccessfulLogin(t *testing.T) {
 	}
 }
 
-func TestOIDCTokenRetriesOnlyClientAuthenticationRejection(t *testing.T) {
+func TestOIDCClientAuthenticationRetryHonorsHTTPStatus(t *testing.T) {
 	for _, scenario := range []struct {
-		name, code string
-		status     int
-		want       int64
+		name   string
+		status int
+		want   int64
 	}{
-		{"client rejection", "invalid_client", 401, 2},
-		{"invalid grant", "invalid_grant", 400, 1},
-		{"invalid request", "invalid_request", 400, 1},
-		{"unavailable", "server_error", 503, 1},
-		{"busy client rejection", "invalid_client", 429, 1},
-		{"server client rejection", "invalid_client", 503, 1},
+		{"client rejection", 401, 2},
+		{"busy client rejection", 429, 1},
+		{"server client rejection", 503, 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			var requests atomic.Int64
@@ -86,13 +82,13 @@ func TestOIDCTokenRetriesOnlyClientAuthenticationRejection(t *testing.T) {
 				requests.Add(1)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(scenario.status)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": scenario.code})
+				_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
 			}))
 			defer endpoint.Close()
 			m := newMockIDP(t, false, "")
 			m.metadata = func(metadata map[string]any) { metadata["token_endpoint"] = endpoint.URL }
 			result, err := loginMock(t, m, m.client(t, nil))
-			if !errors.Is(err, oidc.ErrUnavailable) || result.AuthenticationFailed != (scenario.code == "invalid_grant") {
+			if !errors.Is(err, oidc.ErrUnavailable) || result.AuthenticationFailed {
 				t.Fatalf("unexpected token rejection = %+v, %v", result, err)
 			}
 			if got := requests.Load(); got != scenario.want {

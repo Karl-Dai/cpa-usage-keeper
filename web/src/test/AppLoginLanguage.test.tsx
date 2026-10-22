@@ -21,7 +21,8 @@ let root: Root;
 beforeEach(async () => {
   vi.resetAllMocks();
   await i18n.changeLanguage('en');
-  window.history.replaceState(null, '', '/?keep=yes#detail');
+  window.__APP_BASE_PATH__ = '/keeper';
+  window.history.replaceState(null, '', '/keeper/auth-files?credential=abc#detail');
   api.getSession.mockResolvedValue({ authenticated: false, oidc_login_enabled: true });
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -30,12 +31,13 @@ beforeEach(async () => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  delete window.__APP_BASE_PATH__;
   await i18n.changeLanguage('en');
 });
 
 it.each(['callback', 'start', 'password'])('updates a %s error with the selected language', async (source) => {
   const key = source === 'password' ? 'auth.invalid_password' : 'auth.oidc_denied';
-  if (source === 'callback') window.history.replaceState(null, '', '/?keep=yes&oidc_error=oidc_denied#detail');
+  if (source === 'callback') window.history.replaceState(null, '', '/keeper/auth-files?credential=abc&oidc_error=oidc_denied#detail');
   api.startOIDCLogin.mockRejectedValue(new ApiError('upstream text', 403, 'oidc_denied'));
   api.login.mockRejectedValue(new ApiError('upstream text', 401));
   await act(async () => root.render(<App />));
@@ -48,6 +50,6 @@ it.each(['callback', 'start', 'password'])('updates a %s error with the selected
     expect(error).toBe(i18n.t(key));
     if (language !== 'en') expect(error).not.toBe(english);
   }
-  expect(window.location.search + window.location.hash).toBe('?keep=yes#detail');
+  expect(window.location.pathname + window.location.search + window.location.hash).toBe('/keeper/auth-files?credential=abc#detail');
   expect(api.startOIDCLogin).toHaveBeenCalledTimes(source === 'start' ? 1 : 0);
 });

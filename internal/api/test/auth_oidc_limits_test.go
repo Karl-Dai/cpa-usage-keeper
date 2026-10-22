@@ -53,17 +53,17 @@ func TestOIDCCancellationAndProviderFailuresDoNotConsumeFailureAllowance(t *test
 
 func TestOIDCFailuresCountOnceForOriginalSourceAndCancellationDoesNotReset(t *testing.T) {
 	e := newOIDCAPIEnvironment(t, "", "http")
-	e.failEndpoint("/token", 400, "invalid_grant")
+	// 从未成功登录时也必须累计真实的 invalid_grant，不能被认证方式探测覆盖。
 	for failure := range 5 {
 		query, binding := e.begin(t, "/")
-		callback := "/api/v1/auth/oidc/callback?" + url.Values{"state": {query.Get("state")}, "code": {"code-" + query.Get("state")}}.Encode()
+		callback := "/api/v1/auth/oidc/callback?" + url.Values{"state": {query.Get("state")}, "code": {"invalid-code"}}.Encode()
 		req := httptest.NewRequest(http.MethodGet, e.public+callback, nil)
 		req.RemoteAddr = "192.0.2.99:1234"
 		req.AddCookie(binding)
 		response := httptest.NewRecorder()
 		e.router.ServeHTTP(response, req)
-		if response.Code != 303 {
-			t.Fatal(response.Code)
+		if response.Code != http.StatusSeeOther || !strings.Contains(response.Header().Get("Location"), "oidc_error=") {
+			t.Fatalf("invalid code callback = %d", response.Code)
 		}
 		if failure == 0 {
 			for range 6 {
@@ -99,20 +99,5 @@ func TestOIDCUnboundCallbackCannotChargeVictimAndGlobalRequestLimitRemains(t *te
 	response := e.request(http.MethodPost, "/api/v1/auth/oidc/login", `{}`, nil, nil)
 	if response.Code != 429 {
 		t.Fatalf("global request limit no longer applies to canceled logins: %d", response.Code)
-	}
-}
-
-func TestOIDCInvalidCodesReachSourceLimitBeforeAnySuccessfulLogin(t *testing.T) {
-	e := newOIDCAPIEnvironment(t, "", "http")
-	for range 5 {
-		query, binding := e.begin(t, "/")
-		callback := "/api/v1/auth/oidc/callback?" + url.Values{"state": {query.Get("state")}, "code": {"invalid-code"}}.Encode()
-		response := e.request(http.MethodGet, callback, "", []*http.Cookie{binding}, nil)
-		if response.Code != http.StatusSeeOther || !strings.Contains(response.Header().Get("Location"), "oidc_error=") {
-			t.Fatalf("invalid code callback = %d", response.Code)
-		}
-	}
-	if response := e.request(http.MethodPost, "/api/v1/auth/oidc/login", `{}`, nil, nil); response.Code != http.StatusTooManyRequests {
-		t.Fatalf("invalid grants did not reach the source failure limit: %d", response.Code)
 	}
 }

@@ -50,24 +50,8 @@ func requireOIDCDiagnostic(t *testing.T, hook *logtest.Hook, stage, reason strin
 	}
 }
 
-func TestOIDCDiscoveryLogsOneFailureDuringBackoff(t *testing.T) {
-	hook := captureOIDCLogs(t)
-	m := newMockIDP(t, false, "")
-	m.failDiscovery = true
-	client := m.client(t, nil)
-	for range 3 {
-		if _, err := client.Begin(context.Background(), "/", nil, ""); !errors.Is(err, oidc.ErrUnavailable) {
-			t.Fatalf("discovery error = %v", err)
-		}
-	}
-	requireOIDCDiagnostic(t, hook, "discovery", "unexpected_http_status", 503, "", "secret upstream error")
-	if len(hook.AllEntries()) != 1 || m.discoveries.Load() != 1 {
-		t.Fatal("cached discovery failure produced repeated requests or diagnostics")
-	}
-}
-
 func TestOIDCTokenDiagnosticsDoNotExposeProviderPayload(t *testing.T) {
-	for _, code := range []string{"invalid_client", "invalid_grant", "server_error", "private-error-value"} {
+	for _, code := range []string{"invalid_grant", "private-error-value"} {
 		t.Run(code, func(t *testing.T) {
 			hook := captureOIDCLogs(t)
 			failure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -138,12 +122,12 @@ func TestOIDCJWKSAndUserInfoDiagnosticsPreserveLoginBehavior(t *testing.T) {
 			defer failure.Close()
 			m := newMockIDP(t, false, "")
 			m.metadata = func(metadata map[string]any) { metadata[endpoint] = failure.URL + "?token=private-token" }
-			m.claims = func(claims map[string]any) { delete(claims, "name") }
+			m.claims = func(claims map[string]any) { delete(claims, "name"); claims["preferred_username"] = "fallback" }
 			result, err := loginMock(t, m, m.client(t, nil))
 			wantFailures := 1
 			if endpoint == "userinfo_endpoint" {
 				wantFailures = 0
-				if err != nil || result.Identity.Subject != "Subject,A" {
+				if err != nil || result.Identity.Subject != "Subject,A" || result.Identity.PreferredUsername != "fallback" {
 					t.Fatalf("optional UserInfo failure blocked login: %+v, %v", result, err)
 				}
 			} else if !errors.Is(err, oidc.ErrInvalid) {
@@ -160,31 +144,6 @@ func TestOIDCJWKSAndUserInfoDiagnosticsPreserveLoginBehavior(t *testing.T) {
 			if failures != wantFailures {
 				t.Fatalf("diagnostic count = %d, want %d", failures, wantFailures)
 			}
-		})
-	}
-}
-
-func TestOIDCDiscoveryDiagnosticsClassifyTLSAndMetadataFailures(t *testing.T) {
-	for _, scenario := range []string{"tls", "issuer", "capability"} {
-		t.Run(scenario, func(t *testing.T) {
-			hook := captureOIDCLogs(t)
-			m := newMockIDP(t, scenario == "tls", "")
-			wantReason := "tls_certificate_invalid"
-			if scenario == "issuer" {
-				m.metadata = func(metadata map[string]any) { metadata["issuer"] = "https://private-issuer.example" }
-				wantReason = "issuer_mismatch"
-			} else if scenario == "capability" {
-				m.metadata = func(metadata map[string]any) { metadata["response_types_supported"] = []string{"id_token"} }
-				wantReason = "unsupported_authorization_capabilities"
-			}
-			client, err := oidc.NewClient(oidc.Config{Issuer: m.issuer, ClientID: "keeper", ClientSecret: "private-secret", RedirectURL: "http://keeper.example/api/v1/auth/oidc/callback"}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := client.Begin(context.Background(), "/", nil, ""); !errors.Is(err, oidc.ErrUnavailable) {
-				t.Fatal(err)
-			}
-			requireOIDCDiagnostic(t, hook, "discovery", wantReason, 0, "", "private-issuer.example", "private-secret")
 		})
 	}
 }

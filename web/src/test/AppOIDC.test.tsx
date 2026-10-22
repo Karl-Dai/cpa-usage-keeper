@@ -43,14 +43,6 @@ it('keeps start failures and rate limiting on the page without displaying upstre
   expect(container.textContent).not.toContain('raw upstream');
 });
 
-it('consumes a callback error once while retaining credential deep-link parameters', async () => {
-  window.history.replaceState(null, '', '/keeper/auth-files?credential=abc&oidc_error=oidc_denied#detail');
-  api.getSession.mockResolvedValue({ authenticated: false, oidc_login_enabled: true });
-  await act(async () => root.render(<App />));
-  expect(container.textContent).toContain('auth.oidc_denied');
-  expect(window.location.pathname + window.location.search + window.location.hash).toBe('/keeper/auth-files?credential=abc#detail');
-});
-
 it('hides OIDC in CPAMC even if a response incorrectly advertises the capability', async () => {
   window.history.replaceState(null, '', '/keeper/?embed=cpamc');
   api.getSession.mockResolvedValue({ authenticated: false, oidc_login_enabled: true });

@@ -38,6 +38,11 @@ func TestOIDCSessionPersistenceAliasAndCurrentPolicy(t *testing.T) {
 		"subject": {Enabled: true, Issuer: policy.Issuer, ClientID: policy.ClientID, AllowedSubjects: []string{"user,A"}},
 	} {
 		t.Run(name, func(t *testing.T) {
+			// 每种策略都需要新的有效会话，避免前一个用例的删除让后续检查空跑。
+			_, _, err := manager.CreateOIDC(policy.Issuer, "User,A", policy.ClientID, "", auth.SessionClientMetadata{})
+			if err != nil {
+				t.Fatal(err)
+			}
 			check := auth.NewPersistentSessionManager(time.Hour, auth.NewGormSessionStore(db))
 			check.SetOIDCPolicy(changed)
 			// 列表与业务鉴权采用同一策略；旧普通/嵌入会话不依赖 OIDC 配置。
