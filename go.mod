@@ -1,6 +1,6 @@
 module cpa-usage-keeper
 
-go 1.26
+go 1.26.10
 
 require (
 	github.com/gin-gonic/gin v1.10.0
