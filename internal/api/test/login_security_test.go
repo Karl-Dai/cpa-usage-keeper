@@ -186,8 +186,8 @@ func TestAuthenticatedBusinessRouteDoesNotUseLoginBodyLimit(t *testing.T) {
 	sessions := keeperauth.NewSessionManager(time.Hour)
 	config := keeperapi.AuthConfig{Enabled: true, LoginPassword: "secret", SessionTTL: time.Hour}
 	handler := keeperapi.NewAuthHandler(config, sessions)
-	provider := &authFilesManagementProvider{}
-	router := keeperapi.NewRouter(nil, nil, nil, nil, config, handler, "", keeperapi.OptionalProviders{AuthFiles: provider})
+	provider := &credentialsManagementProvider{}
+	router := keeperapi.NewRouter(nil, nil, nil, nil, config, handler, "", keeperapi.OptionalProviders{Credentials: provider})
 	token, _, err := sessions.Create()
 	if err != nil {
 		t.Fatalf("create admin session: %v", err)
@@ -250,14 +250,14 @@ func (p *countingCPAAPIKeyProvider) FindActiveCPAAPIKeyByValue(context.Context, 
 	return entities.CPAAPIKey{}, p.findErr
 }
 
-type authFilesManagementProvider struct{}
+type credentialsManagementProvider struct{}
 
-func (p *authFilesManagementProvider) SetAuthFilesDisabled(_ context.Context, names []string, _ bool) (service.AuthFilesManagementResponse, error) {
-	return service.AuthFilesManagementResponse{Names: names, Affected: len(names)}, nil
+func (p *credentialsManagementProvider) SetCredentialsDisabled(_ context.Context, names []string, _ bool) (service.CredentialsManagementResponse, error) {
+	return service.CredentialsManagementResponse{Names: names, Affected: len(names)}, nil
 }
 
-func (p *authFilesManagementProvider) DeleteAuthFiles(_ context.Context, names []string) (service.AuthFilesManagementResponse, error) {
-	return service.AuthFilesManagementResponse{Names: names, Affected: len(names)}, nil
+func (p *credentialsManagementProvider) DeleteCredentials(_ context.Context, names []string) (service.CredentialsManagementResponse, error) {
+	return service.CredentialsManagementResponse{Names: names, Affected: len(names)}, nil
 }
 
 type deadlineTrackingResponseWriter struct {

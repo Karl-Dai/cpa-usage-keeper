@@ -40,7 +40,7 @@ func registerCredentialPriorityRoutes(router gin.IRoutes, provider service.Crede
 		})
 	}
 	register("/auth-files/:auth_index/priority", func(c *gin.Context, priority int) (service.CredentialPriorityResponse, error) {
-		return provider.SetAuthFilePriority(c.Request.Context(), c.Param("auth_index"), priority)
+		return provider.SetCredentialPriority(c.Request.Context(), c.Param("auth_index"), priority)
 	})
 	register("/ai-providers/:auth_index/priority", func(c *gin.Context, priority int) (service.CredentialPriorityResponse, error) {
 		return provider.SetAIProviderPriority(c.Request.Context(), c.Param("auth_index"), priority)

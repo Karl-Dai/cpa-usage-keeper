@@ -294,7 +294,7 @@ func seedDatasetMetadata(db *gorm.DB, options GenerateOptions) ([]identityProfil
 	identityRows := make([]entities.UsageIdentity, 0, options.Cardinality.Identities)
 	identityProfiles := make([]identityProfile, 0, options.Cardinality.Identities)
 	for index := 1; index <= options.Cardinality.Identities; index++ {
-		authType := entities.UsageIdentityAuthTypeAuthFile
+		authType := entities.UsageIdentityAuthTypeCredential
 		authTypeName := "auth_file"
 		provider := "codex"
 		eventAuthType := "oauth"

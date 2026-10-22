@@ -66,9 +66,9 @@ type Config struct {
 	RedisQueueBatchSize int
 	// RedisQueueIdleInterval 是 Redis 队列为空时的下一次检查间隔。
 	RedisQueueIdleInterval time.Duration
-	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
+	// MetadataSyncInterval 是 credentials 和 provider metadata 的固定刷新间隔。
 	MetadataSyncInterval time.Duration
-	// QuotaRefreshWorkerLimit 是 Auth Files 限额刷新队列的最大并发数。
+	// QuotaRefreshWorkerLimit 是 Credentials 限额刷新队列的最大并发数。
 	QuotaRefreshWorkerLimit int
 	// QuotaUpstreamResponsesEnabled 控制是否缓存并返回限额查询的原始上游响应。
 	QuotaUpstreamResponsesEnabled bool

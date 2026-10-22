@@ -8,35 +8,35 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type authFilesRequest struct {
+type credentialsRequest struct {
 	Names []string `json:"names"`
 }
 
-type authFilesStatusRequest struct {
+type credentialsStatusRequest struct {
 	Names    []string `json:"names"`
 	Disabled bool     `json:"disabled"`
 }
 
-func registerAuthFileManagementRoutes(router gin.IRoutes, provider service.AuthFilesManagementProvider) {
+func registerCredentialManagementRoutes(router gin.IRoutes, provider service.CredentialsManagementProvider) {
 	router.PATCH("/auth-files/status", func(c *gin.Context) {
 		if provider == nil {
-			writeInternalError(c, "auth files management provider is not configured", nil)
+			writeInternalError(c, "credentials management provider is not configured", nil)
 			return
 		}
 
-		var request authFilesStatusRequest
+		var request credentialsStatusRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "names are required"})
 			return
 		}
 
-		response, err := provider.SetAuthFilesDisabled(c.Request.Context(), request.Names, request.Disabled)
+		response, err := provider.SetCredentialsDisabled(c.Request.Context(), request.Names, request.Disabled)
 		if err != nil {
-			if errors.Is(err, service.ErrAuthFilesManagementValidation) {
+			if errors.Is(err, service.ErrCredentialsManagementValidation) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "names are required"})
 				return
 			}
-			writeInternalError(c, "auth files status update failed", err)
+			writeInternalError(c, "credentials status update failed", err)
 			return
 		}
 		c.JSON(http.StatusOK, response)
@@ -44,23 +44,23 @@ func registerAuthFileManagementRoutes(router gin.IRoutes, provider service.AuthF
 
 	router.DELETE("/auth-files", func(c *gin.Context) {
 		if provider == nil {
-			writeInternalError(c, "auth files management provider is not configured", nil)
+			writeInternalError(c, "credentials management provider is not configured", nil)
 			return
 		}
 
-		var request authFilesRequest
+		var request credentialsRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "names are required"})
 			return
 		}
 
-		response, err := provider.DeleteAuthFiles(c.Request.Context(), request.Names)
+		response, err := provider.DeleteCredentials(c.Request.Context(), request.Names)
 		if err != nil {
-			if errors.Is(err, service.ErrAuthFilesManagementValidation) {
+			if errors.Is(err, service.ErrCredentialsManagementValidation) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "names are required"})
 				return
 			}
-			writeInternalError(c, "auth files delete failed", err)
+			writeInternalError(c, "credentials delete failed", err)
 			return
 		}
 		c.JSON(http.StatusOK, response)

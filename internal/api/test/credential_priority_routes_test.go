@@ -18,7 +18,7 @@ type priorityProviderStub struct {
 	err       error
 }
 
-func (s *priorityProviderStub) SetAuthFilePriority(_ context.Context, authIndex string, priority int) (service.CredentialPriorityResponse, error) {
+func (s *priorityProviderStub) SetCredentialPriority(_ context.Context, authIndex string, priority int) (service.CredentialPriorityResponse, error) {
 	s.authIndex, s.priority = authIndex, priority
 	if s.err != nil {
 		return service.CredentialPriorityResponse{}, s.err
@@ -27,7 +27,7 @@ func (s *priorityProviderStub) SetAuthFilePriority(_ context.Context, authIndex 
 }
 
 func (s *priorityProviderStub) SetAIProviderPriority(ctx context.Context, authIndex string, priority int) (service.CredentialPriorityResponse, error) {
-	return s.SetAuthFilePriority(ctx, authIndex, priority)
+	return s.SetCredentialPriority(ctx, authIndex, priority)
 }
 
 func priorityRouteRequest(t *testing.T, provider service.CredentialPriorityProvider, path, body string) *httptest.ResponseRecorder {
