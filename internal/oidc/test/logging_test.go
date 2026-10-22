@@ -269,3 +269,90 @@ func TestOIDCCanceledJWKSRequestDoesNotLogAnUpstreamFailure(t *testing.T) {
 		t.Fatal("cancellation did not unblock verification")
 	}
 }
+
+type pendingTokenBody struct {
+	ctx     context.Context
+	entered chan struct{}
+}
+
+func (b *pendingTokenBody) Read(_ []byte) (int, error) {
+	b.entered <- struct{}{}
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (b *pendingTokenBody) Close() error { return nil }
+
+type pendingTokenBodyTransport struct{ entered chan struct{} }
+
+func (t pendingTokenBodyTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Path == "/token" {
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: &pendingTokenBody{ctx: request.Context(), entered: t.entered}, Request: request,
+		}, nil
+	}
+	return http.DefaultTransport.RoundTrip(request)
+}
+
+func TestOIDCTokenBodyCancellationIsQuietButTimeoutStillLogs(t *testing.T) {
+	for _, scenario := range []string{"cancel", "timeout"} {
+		t.Run(scenario, func(t *testing.T) {
+			hook := captureOIDCLogs(t)
+			m := newMockIDP(t, false, "")
+			entered := make(chan struct{}, 1)
+			client, err := oidc.NewClient(oidc.Config{Issuer: m.issuer, ClientID: "keeper", ClientSecret: "secret", RedirectURL: "http://keeper.example/api/v1/auth/oidc/callback"}, &http.Client{Transport: pendingTokenBodyTransport{entered: entered}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			authorization, err := client.Begin(context.Background(), "/", nil, "oidc:192.0.2.1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			code := m.code(t, authorization)
+			hook.Reset()
+			var ctx context.Context
+			var cancel context.CancelFunc
+			if scenario == "timeout" {
+				ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+			} else {
+				ctx, cancel = context.WithCancel(context.Background())
+			}
+			defer cancel()
+			type outcome struct {
+				result oidc.LoginResult
+				err    error
+			}
+			done := make(chan outcome, 1)
+			go func() {
+				result, err := client.Complete(ctx, authorization.State, authorization.Binding, code, "")
+				done <- outcome{result, err}
+			}()
+			// 正文开始读取后才中断，覆盖依赖把读取错误转成文本、丢失取消类型的路径。
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("token response body was not read")
+			}
+			if scenario == "cancel" {
+				cancel()
+			}
+			select {
+			case got := <-done:
+				if !errors.Is(got.err, oidc.ErrUnavailable) || got.result.AuthenticationFailed {
+					t.Fatalf("interrupted token body = %+v, %v", got.result, got.err)
+				}
+				wantLogs := 0
+				if scenario == "timeout" {
+					wantLogs = 1
+					requireOIDCDiagnostic(t, hook, "token", "", 0, "", authorization.Binding, code)
+				}
+				if got := len(hook.AllEntries()); got != wantLogs {
+					t.Fatalf("diagnostics = %d, want %d", got, wantLogs)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("context completion did not unblock token exchange")
+			}
+		})
+	}
+}

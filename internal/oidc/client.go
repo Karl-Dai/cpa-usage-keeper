@@ -132,7 +132,10 @@ func (c *Client) Complete(ctx context.Context, state, binding, code, providerErr
 	}
 	token, err := p.exchange(context.WithValue(ctx, oauth2.HTTPClient, c.http), code, txn.Verifier)
 	if err != nil {
-		logRequestFailure("token", 0, err)
+		// 依赖可能把正文读取错误转成文本，直接检查请求取消状态，避免误记上游故障。
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			logRequestFailure("token", 0, err)
+		}
 		var responseError *oauth2.RetrieveError
 		if errors.As(err, &responseError) && responseError.ErrorCode == "invalid_grant" && responseError.Response != nil && responseError.Response.StatusCode < 500 && responseError.Response.StatusCode != http.StatusTooManyRequests {
 			result.AuthenticationFailed = true
