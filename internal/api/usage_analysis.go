@@ -23,7 +23,7 @@ type analysisResponse struct {
 	ModelUsage             analysisModelUsage        `json:"model_usage"`
 	APIKeyComposition      []analysisCompositionItem `json:"api_key_composition"`
 	ModelComposition       []analysisCompositionItem `json:"model_composition"`
-	CredentialsComposition []analysisCompositionItem `json:"auth_files_composition"`
+	CredentialsComposition []analysisCompositionItem `json:"credentials_composition"`
 	AIProviderComposition  []analysisCompositionItem `json:"ai_provider_composition"`
 	Heatmap                analysisHeatmap           `json:"heatmap"`
 	CostSummary            analysisCostSummary       `json:"cost_summary"`

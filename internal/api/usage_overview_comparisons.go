@@ -31,7 +31,7 @@ type usageOverviewComparisons struct {
 	Timezone    string                        `json:"timezone"`
 	Models      []usageOverviewComparisonItem `json:"models"`
 	APIKeys     []usageOverviewComparisonItem `json:"api_keys,omitempty"`
-	Credentials []usageOverviewComparisonItem `json:"auth_files,omitempty"`
+	Credentials []usageOverviewComparisonItem `json:"credentials,omitempty"`
 	AIProviders []usageOverviewComparisonItem `json:"ai_providers,omitempty"`
 }
 

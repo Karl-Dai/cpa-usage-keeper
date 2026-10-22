@@ -214,7 +214,7 @@ func (s *Service) Refresh(ctx context.Context, request RefreshRequest) (RefreshR
 				skippedUnsupported++
 				continue
 			}
-			// 业务拒绝写入 rejected，常见原因是 not_found/not_auth_file。
+			// 业务拒绝写入 rejected，常见原因是 not_found/not_credential。
 			response.Rejected = append(response.Rejected, RefreshRejectedAuthIndex{AuthIndex: authIndex, Error: rejection})
 			// 当前项处理完毕，继续看下一项。
 			continue
@@ -291,7 +291,7 @@ func (s *Service) validateRefreshAuthIndex(ctx context.Context, authIndex string
 
 	var active entities.UsageIdentity
 	if err := s.db.WithContext(ctx).Select("id, auth_type").Where("identity = ? AND is_deleted = ?", authIndex, false).First(&active).Error; err == nil {
-		return entities.UsageIdentity{}, "not_auth_file", nil
+		return entities.UsageIdentity{}, "not_credential", nil
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		return entities.UsageIdentity{}, "not_found", nil
 	} else {

@@ -107,8 +107,8 @@ describe('AiProviderCredentialsSection', () => {
     expect(html).not.toContain('25d')
     expect(html).not.toContain('Weekly')
     expect(html).not.toContain('usage_stats.credentials_column_quota')
-    expect(html).not.toContain('usage_stats.credentials_auth_files_display_mode_quota')
-    expect(html).not.toContain('usage_stats.credentials_auth_files_display_mode_health')
+    expect(html).not.toContain('usage_stats.credentials_display_mode_quota')
+    expect(html).not.toContain('usage_stats.credentials_display_mode_health')
   })
 
   it('marks OpenAI-compatible icons as unavailable and keeps them keyboard reachable', () => {

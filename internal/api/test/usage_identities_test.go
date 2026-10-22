@@ -348,7 +348,7 @@ func TestUsageIdentitiesRoutePublishesAIProviderAuthIndexWithoutLookupKey(t *tes
 
 func TestUsageIdentityReplacesLegacyMetadataRoutes(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: identityMetadataStub{}})
-	for _, path := range []string{"/api/v1/auth-files", "/api/v1/provider-metadata"} {
+	for _, path := range []string{"/api/v1/credentials", "/api/v1/provider-metadata"} {
 		resp := serveAPIGet(router, path)
 
 		if resp.Code != http.StatusNotFound {

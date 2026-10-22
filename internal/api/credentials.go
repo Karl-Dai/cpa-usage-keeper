@@ -18,7 +18,7 @@ type credentialsStatusRequest struct {
 }
 
 func registerCredentialManagementRoutes(router gin.IRoutes, provider service.CredentialsManagementProvider) {
-	router.PATCH("/auth-files/status", func(c *gin.Context) {
+	router.PATCH("/credentials/status", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "credentials management provider is not configured", nil)
 			return
@@ -42,7 +42,7 @@ func registerCredentialManagementRoutes(router gin.IRoutes, provider service.Cre
 		c.JSON(http.StatusOK, response)
 	})
 
-	router.DELETE("/auth-files", func(c *gin.Context) {
+	router.DELETE("/credentials", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "credentials management provider is not configured", nil)
 			return

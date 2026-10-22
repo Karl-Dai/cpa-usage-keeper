@@ -53,7 +53,7 @@ func performCredentialStatusRequest(t *testing.T, provider service.CredentialSta
 
 func TestCredentialStatusRouteTranslatesAuthIndex(t *testing.T) {
 	provider := &credentialStatusProviderStub{}
-	response := performCredentialStatusRequest(t, provider, "/api/v1/auth-files/idx-a/status", `{"disabled":true}`)
+	response := performCredentialStatusRequest(t, provider, "/api/v1/credentials/idx-a/status", `{"disabled":true}`)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", response.Code, response.Body.String())
@@ -79,7 +79,7 @@ func TestAIProviderStatusRouteTranslatesAuthIndex(t *testing.T) {
 }
 
 func TestCredentialStatusRoutesRequireDisabledFlag(t *testing.T) {
-	cases := []string{"/api/v1/auth-files/idx-a/status", "/api/v1/ai-providers/idx-g/status"}
+	cases := []string{"/api/v1/credentials/idx-a/status", "/api/v1/ai-providers/idx-g/status"}
 	for _, path := range cases {
 		provider := &credentialStatusProviderStub{}
 		response := performCredentialStatusRequest(t, provider, path, `{}`)
@@ -128,7 +128,7 @@ func TestCredentialStatusRoutesMapServiceErrors(t *testing.T) {
 }
 
 func TestCredentialStatusRoutesReportUnconfiguredProvider(t *testing.T) {
-	response := performCredentialStatusRequest(t, nil, "/api/v1/auth-files/idx-a/status", `{"disabled":true}`)
+	response := performCredentialStatusRequest(t, nil, "/api/v1/credentials/idx-a/status", `{"disabled":true}`)
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d body=%s", response.Code, response.Body.String())
 	}

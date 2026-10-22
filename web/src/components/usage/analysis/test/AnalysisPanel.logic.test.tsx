@@ -251,7 +251,7 @@ describe('AnalysisPanel token chart data', () => {
     expect(markup).not.toContain('<table');
     expect(markup).not.toContain('gpt-4o');
     expect(markup).not.toContain('usage_stats.analysis_model_composition_title');
-    expect(markup).not.toContain('usage_stats.analysis_auth_files_composition_title');
+    expect(markup).not.toContain('usage_stats.analysis_credentials_composition_title');
     expect(markup).not.toContain('usage_stats.analysis_ai_provider_composition_title');
   });
 

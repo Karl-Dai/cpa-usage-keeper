@@ -15,14 +15,14 @@ const renderPagination = (props: Partial<Parameters<typeof CredentialsPagination
 describe('CredentialSectionShell formatting', () => {
   it('renders the title area without a label slot', () => {
     const html = renderToStaticMarkup(createElement(CredentialSectionShell, {
-      title: 'Auth Files',
+      title: 'Credentials',
       subtitle: 'Credential usage',
       countLabel: '2',
       children: createElement('div', null, 'Rows'),
     }))
 
-    expect(html).toContain('Auth Files')
-    expect(html).not.toContain('Credentials')
+    expect(html).toMatch(/<h3\b[^>]*>Credentials<\/h3>/)
+    expect(html.match(/>Credentials</g)).toHaveLength(1)
   })
 
   it('uses the shared compact K/M/B number format', () => {

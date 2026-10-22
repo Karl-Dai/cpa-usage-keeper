@@ -82,7 +82,7 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 		Timezone    string
 		Models      []comparisonItem
 		APIKeys     []comparisonItem `json:"api_keys"`
-		Credentials []comparisonItem `json:"auth_files"`
+		Credentials []comparisonItem `json:"credentials"`
 		AIProviders []comparisonItem `json:"ai_providers"`
 	}
 	var payload comparisonPayload
@@ -195,7 +195,7 @@ func TestOverviewComparisonAPIUsesAliasesAndViewerScope(t *testing.T) {
 	if len(viewerModels) != 1 || viewerModels["my-model"].Cost == nil || !overviewAPICostClose(*viewerModels["my-model"].Cost, 6.25) || len(payload.Credentials) != 0 || len(payload.AIProviders) != 0 {
 		t.Fatalf("viewer scope or stored fee changed: %+v", payload)
 	}
-	for _, restricted := range []string{"auth_files", "ai_providers", "Auth Source", "Provider Source", "auth-one", "provider-one"} {
+	for _, restricted := range []string{"credentials", "ai_providers", "Auth Source", "Provider Source", "auth-one", "provider-one"} {
 		if strings.Contains(response.Body.String(), restricted) {
 			t.Fatalf("viewer received restricted dimension %s", restricted)
 		}

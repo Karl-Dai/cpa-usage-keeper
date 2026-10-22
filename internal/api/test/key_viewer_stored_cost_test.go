@@ -90,7 +90,7 @@ func TestKeyViewerOverviewAndAnalysisReadOnlySessionKeyStoredCosts(t *testing.T)
 			Key     string  `json:"key"`
 			CostUSD float64 `json:"cost_usd"`
 		} `json:"api_key_composition"`
-		CredentialsComposition []json.RawMessage `json:"auth_files_composition"`
+		CredentialsComposition []json.RawMessage `json:"credentials_composition"`
 		AIProviderComposition  []json.RawMessage `json:"ai_provider_composition"`
 	}
 	if err := json.Unmarshal(analysis.Body.Bytes(), &analysisPayload); err != nil {

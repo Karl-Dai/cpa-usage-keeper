@@ -116,7 +116,7 @@ func TestUsageAnalysisReturnsAggregatedRows(t *testing.T) {
 	if !strings.Contains(body, `"cost_usd":1.23`) || !strings.Contains(body, `"cost_available":true`) {
 		t.Fatalf("expected token/composition cost fields in response body: %s", body)
 	}
-	if !strings.Contains(body, `"api_key_composition":[`) || !strings.Contains(body, `"model_composition":[`) || !strings.Contains(body, `"auth_files_composition":[`) || !strings.Contains(body, `"ai_provider_composition":[`) {
+	if !strings.Contains(body, `"api_key_composition":[`) || !strings.Contains(body, `"model_composition":[`) || !strings.Contains(body, `"credentials_composition":[`) || !strings.Contains(body, `"ai_provider_composition":[`) {
 		t.Fatalf("expected composition payloads in response body: %s", body)
 	}
 	if !strings.Contains(body, `"key":"sk-*********123456"`) || !strings.Contains(body, `"label":"sk-*********123456"`) {

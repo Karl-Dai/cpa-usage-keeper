@@ -194,7 +194,7 @@ func TestAuthenticatedBusinessRouteDoesNotUseLoginBodyLimit(t *testing.T) {
 	}
 
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPatch, "/api/v1/auth-files/status", strings.NewReader(`{"names":["`+strings.Repeat("x", 4096)+`"],"disabled":true}`))
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/credentials/status", strings.NewReader(`{"names":["`+strings.Repeat("x", 4096)+`"],"disabled":true}`))
 	request.Header.Set(requestIntentHeaderName, requestIntentHeaderValueFetch)
 	request.Header.Set("Content-Type", "application/json")
 	request.AddCookie(&http.Cookie{Name: standardSessionCookieName, Value: token})

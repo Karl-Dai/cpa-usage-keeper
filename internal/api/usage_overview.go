@@ -111,7 +111,7 @@ type usageOverviewLatencyScatterPoint struct {
 type usageOverviewRealtimeCurrentUsage struct {
 	Models      []usageOverviewRealtimeUsageTopItem `json:"models"`
 	APIKeys     []usageOverviewRealtimeUsageTopItem `json:"api_keys"`
-	Credentials []usageOverviewRealtimeUsageTopItem `json:"auth_files"`
+	Credentials []usageOverviewRealtimeUsageTopItem `json:"credentials"`
 	AIProviders []usageOverviewRealtimeUsageTopItem `json:"ai_providers"`
 }
 

@@ -103,7 +103,7 @@ func TestAPIKeyViewerAnalysisForcesSessionKeyAndOmitsSourceComposition(t *testin
 			} `json:"series"`
 		} `json:"model_speed"`
 		APIKeyComposition      []struct{ Key, Label string } `json:"api_key_composition"`
-		CredentialsComposition []json.RawMessage             `json:"auth_files_composition"`
+		CredentialsComposition []json.RawMessage             `json:"credentials_composition"`
 		AIProviderComposition  []json.RawMessage             `json:"ai_provider_composition"`
 		Heatmap                struct {
 			APIKeys      []string          `json:"api_keys"`

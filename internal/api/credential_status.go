@@ -14,7 +14,7 @@ type credentialStatusRequest struct {
 
 // registerCredentialStatusRoutes 注册凭证与 AI 供应商的单条状态开关，前端只提供 auth_index。
 func registerCredentialStatusRoutes(router gin.IRoutes, provider service.CredentialStatusProvider) {
-	router.PATCH("/auth-files/:auth_index/status", func(c *gin.Context) {
+	router.PATCH("/credentials/:auth_index/status", func(c *gin.Context) {
 		if provider == nil {
 			writeInternalError(c, "credential status provider is not configured", nil)
 			return

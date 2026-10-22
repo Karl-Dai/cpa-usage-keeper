@@ -46,7 +46,7 @@ func TestCredentialPriorityRoutesAcceptSignedAndZeroIntegers(t *testing.T) {
 		path, body string
 		want       int
 	}{
-		{"/api/v1/auth-files/auth-1/priority", `{"priority":0}`, 0},
+		{"/api/v1/credentials/auth-1/priority", `{"priority":0}`, 0},
 		{"/api/v1/ai-providers/ai-1/priority", `{"priority":-12}`, -12},
 		{"/api/v1/ai-providers/ai-1/priority", `{"priority":10}`, 10},
 	} {
@@ -61,7 +61,7 @@ func TestCredentialPriorityRoutesAcceptSignedAndZeroIntegers(t *testing.T) {
 func TestCredentialPriorityRoutesRejectInvalidNumbers(t *testing.T) {
 	for _, body := range []string{`{}`, `{"priority":null}`, `{"priority":1.2}`, `{"priority":1e1}`, `{"priority":"1"}`, `{"priority":9007199254740992}`, `{"priority":-9007199254740992}`} {
 		provider := &priorityProviderStub{}
-		response := priorityRouteRequest(t, provider, "/api/v1/auth-files/auth-1/priority", body)
+		response := priorityRouteRequest(t, provider, "/api/v1/credentials/auth-1/priority", body)
 		if response.Code != http.StatusBadRequest || provider.authIndex != "" {
 			t.Fatalf("body=%s status=%d provider=%+v", body, response.Code, provider)
 		}
