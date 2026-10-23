@@ -37,7 +37,7 @@ func HasProcessableRedisUsageInbox(ctx context.Context, db *gorm.DB) (bool, erro
 	return marker == 1, nil
 }
 
-const redisUsageInboxProcessingColumns = "id, source, raw_message, status, attempt_count, usage_event_key, popped_at"
+const redisUsageInboxProcessingColumns = "id, instance, source, raw_message, status, attempt_count, usage_event_key, popped_at"
 
 const (
 	RedisUsageInboxStatusPending       = "pending"
@@ -61,11 +61,18 @@ type RedisUsageInboxProcessedUpdate struct {
 }
 
 func InsertRedisUsageInboxRawMessages(db *gorm.DB, source string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
+	// 单实例兼容入口保持原签名，实例为空字符串。
+	return InsertRedisUsageInboxRawMessagesForInstance(db, "", source, messages, poppedAt)
+}
+
+// InsertRedisUsageInboxRawMessagesForInstance 在 raw message 入库时记录来源实例，供多实例汇总区分。
+func InsertRedisUsageInboxRawMessagesForInstance(db *gorm.DB, instance string, source string, messages []string, poppedAt time.Time) ([]entities.RedisUsageInbox, error) {
 	// inputs 统一走结构化 DTO，避免 raw message 快捷入口和测试入口出现两套入库逻辑。
+	trimmedInstance := strings.TrimSpace(instance)
 	inputs := make([]dto.RedisInboxInsert, 0, len(messages))
 	for _, message := range messages {
 		// source 原样传给标准入口，真正的 trim/兜底只在一个地方完成。
-		inputs = append(inputs, dto.RedisInboxInsert{Source: source, RawMessage: message, PoppedAt: poppedAt})
+		inputs = append(inputs, dto.RedisInboxInsert{Source: source, RawMessage: message, PoppedAt: poppedAt, Instance: trimmedInstance})
 	}
 	// InsertRedisUsageInboxMessages 是唯一实际批量写入入口。
 	return InsertRedisUsageInboxMessages(db, inputs)
@@ -82,6 +89,7 @@ func InsertRedisUsageInboxMessages(db *gorm.DB, inputs []dto.RedisInboxInsert) (
 		hash := sha256.Sum256([]byte(input.RawMessage))
 		rows = append(rows, entities.RedisUsageInbox{
 			Source:       redisUsageInboxSource(input.Source),
+			Instance:     strings.TrimSpace(input.Instance),
 			MessageHash:  fmt.Sprintf("%x", hash),
 			RawMessage:   input.RawMessage,
 			Status:       RedisUsageInboxStatusPending,

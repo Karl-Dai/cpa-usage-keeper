@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -24,7 +25,21 @@ const (
 	MetadataSyncIntervalDefault    = 30 * time.Second
 	QuotaRefreshWorkerLimitDefault = 10
 	QuotaRefreshWorkerLimitMax     = 100
+	// CPAInstanceNameMaxLength 限制实例展示名长度，避免超长标签撑坏前端筛选控件。
+	CPAInstanceNameMaxLength = 64
 )
+
+// CPAInstance 描述一个被 Keeper 汇总的 CPA 实例。
+type CPAInstance struct {
+	// Name 是实例展示名；单实例兼容模式下为空字符串。
+	Name string
+	// BaseURL 是 Keeper 服务端访问该实例的地址。
+	BaseURL string
+	// ManagementKey 是该实例的管理密钥。
+	ManagementKey string
+	// RedisQueueAddr 覆盖从 BaseURL 推导的 Redis 队列地址；空值沿用全局设置。
+	RedisQueueAddr string
+}
 
 var (
 	DefaultWorkDir      = filepath.Join(".", "data")
@@ -57,6 +72,8 @@ type Config struct {
 	CPABaseURL string
 	// CPAManagementKey 是访问 CPA 管理数据的密钥。
 	CPAManagementKey string
+	// Instances 是全部被汇总的 CPA 实例；单实例部署只含一个 Name 为空的实例。
+	Instances []CPAInstance
 	// CPARequestLogAccessEnabled 控制是否允许通过 Keeper 访问 CPA request log。
 	CPARequestLogAccessEnabled bool
 	// RedisQueueAddr 是 CPA management data stream 的 TCP 地址，空值时按 CPA_BASE_URL 推导。
@@ -128,6 +145,77 @@ func LoadFromEnv() (*Config, error) {
 
 func (cfg Config) ListenAddress() string {
 	return net.JoinHostPort(cfg.AppHost, cfg.AppPort)
+}
+
+// PrimaryInstance 返回主实例；单实例部署中 Name 为空字符串。
+func (cfg Config) PrimaryInstance() CPAInstance {
+	return cfg.InstanceList()[0]
+}
+
+// InstanceList 返回全部被汇总的实例；未显式配置时用单实例字段合成唯一实例，保证至少一个元素。
+func (cfg Config) InstanceList() []CPAInstance {
+	if len(cfg.Instances) > 0 {
+		return cfg.Instances
+	}
+	return []CPAInstance{{BaseURL: cfg.CPABaseURL, ManagementKey: cfg.CPAManagementKey, RedisQueueAddr: cfg.RedisQueueAddr}}
+}
+
+// MultiInstance 表示是否配置了多个被汇总的 CPA 实例。
+func (cfg Config) MultiInstance() bool {
+	return len(cfg.Instances) > 1
+}
+
+// cpaInstanceEnvEntry 是 CPA_INSTANCES 的 JSON 结构，全部字段使用下划线命名。
+type cpaInstanceEnvEntry struct {
+	Name           string `json:"name"`
+	BaseURL        string `json:"base_url"`
+	ManagementKey  string `json:"management_key"`
+	RedisQueueAddr string `json:"redis_queue_addr"`
+}
+
+// parseCPAInstances 解析 CPA_INSTANCES；空值返回 nil，表示沿用单实例兼容配置。
+func parseCPAInstances(raw string) ([]CPAInstance, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var entries []cpaInstanceEnvEntry
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	// 未知字段通常意味着拼写错误，直接报错避免静默忽略配置。
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&entries); err != nil {
+		return nil, fmt.Errorf("CPA_INSTANCES is not a valid JSON array of instances: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("CPA_INSTANCES must contain at least one instance")
+	}
+	instances := make([]CPAInstance, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for index, entry := range entries {
+		instance := CPAInstance{
+			Name:           strings.TrimSpace(entry.Name),
+			BaseURL:        strings.TrimSpace(entry.BaseURL),
+			ManagementKey:  strings.TrimSpace(entry.ManagementKey),
+			RedisQueueAddr: strings.TrimSpace(entry.RedisQueueAddr),
+		}
+		if instance.Name == "" {
+			return nil, fmt.Errorf("CPA_INSTANCES[%d].name is required", index)
+		}
+		if len(instance.Name) > CPAInstanceNameMaxLength {
+			return nil, fmt.Errorf("CPA_INSTANCES[%d].name must be at most %d characters", index, CPAInstanceNameMaxLength)
+		}
+		if _, ok := seen[instance.Name]; ok {
+			return nil, fmt.Errorf("CPA_INSTANCES contains duplicate name %q", instance.Name)
+		}
+		seen[instance.Name] = struct{}{}
+		if instance.BaseURL == "" {
+			return nil, fmt.Errorf("CPA_INSTANCES[%d].base_url is required", index)
+		}
+		if instance.ManagementKey == "" {
+			return nil, fmt.Errorf("CPA_INSTANCES[%d].management_key is required", index)
+		}
+		instances = append(instances, instance)
+	}
+	return instances, nil
 }
 
 func Load(options LoadOptions) (*Config, error) {
@@ -284,6 +372,11 @@ func Load(options LoadOptions) (*Config, error) {
 
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
+	instances, err := parseCPAInstances(strings.TrimSpace(os.Getenv("CPA_INSTANCES")))
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		AppHost:                       strings.TrimSpace(os.Getenv("APP_HOST")),
 		AppPort:                       getString("APP_PORT", "8080"),
@@ -324,12 +417,32 @@ func Load(options LoadOptions) (*Config, error) {
 	if appHost := strings.TrimSpace(options.AppHost); appHost != "" {
 		cfg.AppHost = appHost
 	}
-	if cfg.CPABaseURL == "" {
-		return nil, fmt.Errorf("CPA_BASE_URL is required")
+	// 单实例兼容模式由 CPA_BASE_URL 合成唯一实例；多实例模式则用第一个实例回填单实例字段，
+	// 让配额、凭证管理和请求日志等仍绑定主实例的功能保持可用。
+	if len(instances) == 0 {
+		if cfg.CPABaseURL == "" {
+			return nil, fmt.Errorf("CPA_BASE_URL is required")
+		}
+		if cfg.CPAManagementKey == "" {
+			return nil, fmt.Errorf("CPA_MANAGEMENT_KEY is required")
+		}
+		instances = []CPAInstance{{
+			BaseURL:        cfg.CPABaseURL,
+			ManagementKey:  cfg.CPAManagementKey,
+			RedisQueueAddr: cfg.RedisQueueAddr,
+		}}
+	} else {
+		if cfg.CPABaseURL == "" {
+			cfg.CPABaseURL = instances[0].BaseURL
+		}
+		if cfg.CPAManagementKey == "" {
+			cfg.CPAManagementKey = instances[0].ManagementKey
+		}
+		if cfg.RedisQueueAddr == "" {
+			cfg.RedisQueueAddr = instances[0].RedisQueueAddr
+		}
 	}
-	if cfg.CPAManagementKey == "" {
-		return nil, fmt.Errorf("CPA_MANAGEMENT_KEY is required")
-	}
+	cfg.Instances = instances
 	if cfg.AuthEnabled {
 		if cfg.LoginPassword == "" && authEnabledValue == "" {
 			return nil, fmt.Errorf("AUTH_ENABLED is not set, so authentication defaults to true; LOGIN_PASSWORD is required")

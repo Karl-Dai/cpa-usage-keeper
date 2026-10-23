@@ -6,11 +6,22 @@ import (
 	"sync"
 	"time"
 
+	"cpa-usage-keeper/internal/service"
 	"github.com/sirupsen/logrus"
 )
 
 type MetadataSyncer interface {
 	SyncMetadata(ctx context.Context) error
+}
+
+// instanceAPIKeySyncer 只同步单个附属实例的管理 API key，供多实例汇总复用 metadata 调度器。
+type instanceAPIKeySyncer struct {
+	// service 绑定该实例自己的客户端与实例名，不接触主实例的 credentials／provider 数据。
+	service *service.SyncService
+}
+
+func (s instanceAPIKeySyncer) SyncMetadata(ctx context.Context) error {
+	return s.service.SyncManagementAPIKeysOnly(ctx)
 }
 
 const metadataSyncRefreshDebounceDefault = time.Second

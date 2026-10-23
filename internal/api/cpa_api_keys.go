@@ -20,6 +20,7 @@ const maxCPAAPIKeyAliasLength = 128
 
 type cpaAPIKeyResponse struct {
 	ID           string  `json:"id"`
+	Instance     string  `json:"instance"`
 	KeyAlias     string  `json:"keyAlias"`
 	DisplayKey   string  `json:"displayKey"`
 	Label        string  `json:"label"`
@@ -32,6 +33,7 @@ type cpaAPIKeyListResponse struct {
 
 type cpaAPIKeySettingsResponse struct {
 	ID           string  `json:"id"`
+	Instance     string  `json:"instance"`
 	APIKey       string  `json:"apiKey"`
 	KeyAlias     string  `json:"keyAlias"`
 	DisplayKey   string  `json:"displayKey"`
@@ -44,8 +46,9 @@ type cpaAPIKeySettingsListResponse struct {
 }
 
 type cpaAPIKeyOption struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID       string `json:"id"`
+	Instance string `json:"instance"`
+	Label    string `json:"label"`
 }
 
 type cpaAPIKeyOptionsResponse struct {
@@ -175,6 +178,7 @@ func toCPAAPIKeyResponse(row entities.CPAAPIKey) cpaAPIKeyResponse {
 	}
 	return cpaAPIKeyResponse{
 		ID:           strconv.FormatInt(row.ID, 10),
+		Instance:     strings.TrimSpace(row.Instance),
 		KeyAlias:     row.KeyAlias,
 		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
 		Label:        label,
@@ -191,6 +195,7 @@ func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsRespon
 	}
 	return cpaAPIKeySettingsResponse{
 		ID:           strconv.FormatInt(row.ID, 10),
+		Instance:     strings.TrimSpace(row.Instance),
 		APIKey:       row.APIKey,
 		KeyAlias:     row.KeyAlias,
 		DisplayKey:   helper.CPAAPIKeyMaskedDisplayKey(row),
@@ -202,8 +207,9 @@ func toCPAAPIKeySettingsResponse(row entities.CPAAPIKey) cpaAPIKeySettingsRespon
 func toCPAAPIKeyOption(row entities.CPAAPIKey) cpaAPIKeyOption {
 	label := helper.CPAAPIKeyDisplayName(row)
 	return cpaAPIKeyOption{
-		ID:    strconv.FormatInt(row.ID, 10),
-		Label: label,
+		ID:       strconv.FormatInt(row.ID, 10),
+		Instance: strings.TrimSpace(row.Instance),
+		Label:    label,
 	}
 }
 

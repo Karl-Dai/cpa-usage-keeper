@@ -1,16 +1,19 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/repository"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
 // syncManagementAPIKeys 同步 CPA 管理 API key 清单；原值只在本地保存，对外查询时再脱敏。
-func syncManagementAPIKeys(db *gorm.DB, result *response.ManagementAPIKeysResult, fetchErr error, now time.Time) error {
+// instance 标识 key 所属实例，adoptUnattributed 允许命名主实例认领历史空实例行。
+func syncManagementAPIKeys(db *gorm.DB, instance string, adoptUnattributed bool, result *response.ManagementAPIKeysResult, fetchErr error, now time.Time) error {
 	// fetch failure 没有完整新清单，必须保留本地 active keys。
 	if fetchErr != nil {
 		// 保持原有来源错误包装。
@@ -27,10 +30,21 @@ func syncManagementAPIKeys(db *gorm.DB, result *response.ManagementAPIKeysResult
 		return fmt.Errorf("fetch management api keys: empty response")
 	}
 	// 成功响应交给原 repository，以本轮统一 now 执行独立事务替换。
-	if err := repository.SyncCPAAPIKeys(db, result.Payload.APIKeys, now); err != nil {
+	if err := repository.SyncCPAAPIKeysForInstance(db, instance, adoptUnattributed, result.Payload.APIKeys, now); err != nil {
 		// repository failure 使用原 service 上下文包装。
 		return fmt.Errorf("sync management api keys: %w", err)
 	}
 	// 成功空列表和非空列表都完成本轮同步。
 	return nil
+}
+
+// SyncManagementAPIKeysOnly 只同步本实例的管理 API key 清单。
+// 多实例汇总中主实例之外的实例只用它，避免这些实例的 credentials／provider 覆盖主实例身份数据。
+func (s *SyncService) SyncManagementAPIKeysOnly(ctx context.Context) error {
+	if err := s.validate(syncMetadataRequired); err != nil {
+		return err
+	}
+	fetchedAt := timeutil.NormalizeStorageTime(s.now())
+	apiKeysResult, apiKeysErr := s.metadataFetcher.FetchManagementAPIKeys(ctx)
+	return syncManagementAPIKeys(s.db, s.instance, s.adoptUnattributedAPIKeys, apiKeysResult, apiKeysErr, fetchedAt)
 }

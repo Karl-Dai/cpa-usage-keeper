@@ -29,10 +29,15 @@ func CPAAPIKeyMaskedDisplayKey(row entities.CPAAPIKey) string {
 	return strings.TrimSpace(row.DisplayKey)
 }
 
-// CPAAPIKeyDisplayName 返回 CPA API Key 的前端展示名：优先别名，其次使用统一脱敏 key。
+// CPAAPIKeyDisplayName 返回 CPA API Key 的前端展示名：多实例时带实例前缀，优先别名，其次使用统一脱敏 key。
 func CPAAPIKeyDisplayName(row entities.CPAAPIKey) string {
+	label := CPAAPIKeyMaskedDisplayKey(row)
 	if strings.TrimSpace(row.KeyAlias) != "" {
-		return strings.TrimSpace(row.KeyAlias)
+		label = strings.TrimSpace(row.KeyAlias)
 	}
-	return CPAAPIKeyMaskedDisplayKey(row)
+	// 单实例部署实例名为空，展示名与旧版本完全一致。
+	if instance := strings.TrimSpace(row.Instance); instance != "" {
+		return instance + " · " + label
+	}
+	return label
 }

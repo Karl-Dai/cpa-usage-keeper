@@ -11,7 +11,16 @@ import (
 	"gorm.io/plugin/dbresolver"
 )
 
+// SyncCPAAPIKeys 保留单实例签名，按空实例同步；多实例调用方使用 SyncCPAAPIKeysForInstance。
 func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
+	return SyncCPAAPIKeysForInstance(db, "", false, keys, syncedAt)
+}
+
+// SyncCPAAPIKeysForInstance 只同步指定实例的管理 API key。
+// adoptUnattributed 仅对命名主实例开启：把历史单实例行（instance 为空）认领到主实例名下，
+// 避免升级后同一个 key 因实例标签不同而重复插入。
+func SyncCPAAPIKeysForInstance(db *gorm.DB, instance string, adoptUnattributed bool, keys []string, syncedAt time.Time) error {
+	instance = strings.TrimSpace(instance)
 	seen := make(map[string]struct{}, len(keys))
 	uniqueKeys := make([]string, 0, len(keys))
 	for _, key := range keys {
@@ -28,13 +37,24 @@ func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
 
 	var existingRows []struct {
 		ID         int64
+		Instance   string
 		APIKey     string
 		DisplayKey string
 		IsDeleted  bool
 	}
+	// 只读取当前实例的行；命名主实例额外认领历史空实例行，保持单实例升级连续性。
+	existingQuery := db.Clauses(dbresolver.Read).Model(&entities.CPAAPIKey{}).
+		Select("id, instance, api_key, display_key, is_deleted")
+	switch {
+	case instance == "":
+		existingQuery = existingQuery.Where("instance = ?", "")
+	case adoptUnattributed:
+		existingQuery = existingQuery.Where("instance IN ?", []string{instance, ""})
+	default:
+		existingQuery = existingQuery.Where("instance = ?", instance)
+	}
 	// 先在独立 reader 上比较完整 key 集合，只有变化才进入 writer 事务。
-	if err := db.Clauses(dbresolver.Read).Model(&entities.CPAAPIKey{}).
-		Select("id, api_key, display_key, is_deleted").Find(&existingRows).Error; err != nil {
+	if err := existingQuery.Find(&existingRows).Error; err != nil {
 		return err
 	}
 	type keyUpdate struct {
@@ -59,6 +79,10 @@ func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
 			if row.IsDeleted {
 				fields["is_deleted"] = false
 			}
+			// 认领历史空实例行时同步写入实例名，后续轮次无需再次匹配空实例。
+			if row.Instance != instance {
+				fields["instance"] = instance
+			}
 			if len(fields) > 0 {
 				fields["last_synced_at"] = &syncedAt
 				fields["updated_at"] = syncedAt
@@ -67,6 +91,7 @@ func SyncCPAAPIKeys(db *gorm.DB, keys []string, syncedAt time.Time) error {
 			continue
 		}
 		toCreate = append(toCreate, entities.CPAAPIKey{
+			Instance:     instance,
 			APIKey:       key,
 			DisplayKey:   helper.RedactSensitiveValue(key),
 			IsDeleted:    false,

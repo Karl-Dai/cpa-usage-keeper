@@ -30,7 +30,7 @@ func (s *SyncService) SyncMetadata(ctx context.Context) error {
 	// Credentials 先进入自己的 repository 事务，保持原有写入顺序。
 	authSyncErr := syncCredentials(ctx, s.db, credentialsResult, credentialsErr, fetchedAt)
 	// 管理 API Keys 第二个串行写入，不与 SQLite provider 写入并发。
-	apiKeySyncErr := syncManagementAPIKeys(s.db, apiKeysResult, apiKeysErr, fetchedAt)
+	apiKeySyncErr := syncManagementAPIKeys(s.db, s.instance, s.adoptUnattributedAPIKeys, apiKeysResult, apiKeysErr, fetchedAt)
 	// provider snapshot 最后一次进入 scoped replace 单事务，并分开返回 persistence error 与 fetch warning。
 	providerSyncErr, providerWarningErr := persistProviderMetadata(ctx, s.db, providerSnapshot, providerFetchErr, fetchedAt)
 	// 三类持久化错误按 Credentials、管理 key、provider 的既有顺序合并。

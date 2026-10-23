@@ -24,8 +24,8 @@ func TestRunSchemaMigrationCreatesCPAAPIKeySchemaAndRecordsVersion(t *testing.T)
 	if !db.Migrator().HasTable(&entities.CPAAPIKey{}) {
 		t.Fatalf("expected cpa_api_keys table to exist")
 	}
-	if !sqliteIndexExists(t, db, "uniq_cpa_api_keys_api_key") {
-		t.Fatalf("expected api_key unique index to exist")
+	if !sqliteIndexExists(t, db, "uniq_cpa_api_keys_instance_api_key") {
+		t.Fatalf("expected instance/api_key unique index to exist")
 	}
 	if !sqliteIndexExists(t, db, "idx_cpa_api_keys_is_deleted") {
 		t.Fatalf("expected is_deleted index to exist")

@@ -97,6 +97,8 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20261009_remove_ranking",
 		"20261018_recover_execution_usage_events",
 		"20261020_add_auth_session_oidc_identity",
+		// 多实例汇总标签列必须排在已发布迁移之后，保持既有版本顺序不变。
+		"20261023_add_cpa_instance_labels",
 	}
 	assertStringSlicesEqual(t, want, got)
 }

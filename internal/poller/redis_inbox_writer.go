@@ -3,6 +3,7 @@ package poller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"cpa-usage-keeper/internal/repository"
@@ -12,6 +13,8 @@ import (
 type RepositoryRedisInboxWriter struct {
 	// db 是 redis_usage_inboxes 的落库连接。
 	db *gorm.DB
+	// instance 标识当前 writer 属于哪个 CPA 实例；空字符串表示单实例兼容模式。
+	instance string
 }
 
 // PricingBootstrapInboxWriter 仅供首次升级接收使用，按物理 inbox 列写原始消息。
@@ -40,6 +43,11 @@ func NewRedisInboxWriter(db *gorm.DB) *RepositoryRedisInboxWriter {
 	return &RepositoryRedisInboxWriter{db: db}
 }
 
+// NewRedisInboxWriterForInstance 让同一个库中的 inbox 行带上来源实例，供多实例汇总区分。
+func NewRedisInboxWriterForInstance(db *gorm.DB, instance string) *RepositoryRedisInboxWriter {
+	return &RepositoryRedisInboxWriter{db: db, instance: strings.TrimSpace(instance)}
+}
+
 func (w *RepositoryRedisInboxWriter) Insert(ctx context.Context, source string, messages []string, receivedAt time.Time) (int, error) {
 	// source 是最终写入 redis_usage_inboxes.source 的完整来源名，不再表示 Redis queue key。
 	if len(messages) == 0 {
@@ -55,7 +63,7 @@ func (w *RepositoryRedisInboxWriter) Insert(ctx context.Context, source string, 
 		return 0, err
 	}
 	// 来源名由 runner 传入，完整落库便于区分 subscribe、redis pull 和 HTTP pull。
-	rows, err := repository.InsertRedisUsageInboxRawMessages(w.db.WithContext(ctx), source, messages, receivedAt)
+	rows, err := repository.InsertRedisUsageInboxRawMessagesForInstance(w.db.WithContext(ctx), w.instance, source, messages, receivedAt)
 	if err != nil {
 		// 插入失败交给 runner 记录 error 并进入对应失败路径。
 		return 0, err

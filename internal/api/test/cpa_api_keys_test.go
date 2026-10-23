@@ -158,7 +158,7 @@ func TestCPAAPIKeyOptionsReturnActiveLabels(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &parsed); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	want := []map[string]string{{"id": "1", "label": "Primary Key"}}
+	want := []map[string]string{{"id": "1", "instance": "", "label": "Primary Key"}}
 	if !reflect.DeepEqual(parsed.Options, want) {
 		t.Fatalf("options must expose only active ids and labels, got %+v", parsed.Options)
 	}

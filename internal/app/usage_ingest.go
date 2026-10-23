@@ -18,14 +18,24 @@ func newPricingBootstrapIngestRunner(cfg config.Config, db *gorm.DB) (*poller.Re
 // newUsageIngestRunner 复用订阅、Redis pull 和 HTTP pull 的既有优先级及降级合同。
 // writer 决定启动引导或正常 schema 的 inbox 写列；observer 只在业务运行阶段注入。
 func newUsageIngestRunner(cfg config.Config, writer poller.RedisInboxWriter, observer poller.RedisControlMessageObserver) *poller.RedisIngestRunner {
+	return newUsageIngestRunnerForInstance(cfg, cfg.PrimaryInstance(), writer, observer)
+}
+
+// newUsageIngestRunnerForInstance 按实例地址与管理密钥构造接收 runner。
+// instance.RedisQueueAddr 为空时沿用全局 REDIS_QUEUE_ADDR，保持单实例配置行为不变。
+func newUsageIngestRunnerForInstance(cfg config.Config, instance config.CPAInstance, writer poller.RedisInboxWriter, observer poller.RedisControlMessageObserver) *poller.RedisIngestRunner {
+	redisAddr := instance.RedisQueueAddr
+	if redisAddr == "" {
+		redisAddr = cfg.RedisQueueAddr
+	}
 	redisPullSource := poller.NewRedisPullSource(cpa.RedisQueueOptions{
-		BaseURL: cfg.CPABaseURL, RedisAddr: cfg.RedisQueueAddr, ManagementKey: cfg.CPAManagementKey,
+		BaseURL: instance.BaseURL, RedisAddr: redisAddr, ManagementKey: instance.ManagementKey,
 		Timeout: cfg.RequestTimeout, BatchSize: cfg.RedisQueueBatchSize,
 		TLS: cfg.RedisQueueTLS, TLSSkipVerify: cfg.TLSSkipVerify,
 	})
-	httpPullSource := poller.NewHTTPPullSource(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify, cfg.RedisQueueBatchSize)
+	httpPullSource := poller.NewHTTPPullSource(instance.BaseURL, instance.ManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify, cfg.RedisQueueBatchSize)
 	redisSubscribeSource := poller.NewRedisSubscribeSource(poller.RedisSubscribeOptions{
-		BaseURL: cfg.CPABaseURL, RedisAddr: cfg.RedisQueueAddr, ManagementKey: cfg.CPAManagementKey,
+		BaseURL: instance.BaseURL, RedisAddr: redisAddr, ManagementKey: instance.ManagementKey,
 		Timeout: cfg.RequestTimeout, TLS: cfg.RedisQueueTLS, TLSSkipVerify: cfg.TLSSkipVerify,
 	})
 	filteredWriter := poller.NewControlAwareRedisInboxWriter(writer, observer)

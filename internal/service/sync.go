@@ -59,15 +59,19 @@ const (
 
 // SyncService 负责同步 CPA metadata，并处理已经落入本地 inbox 的 usage 原始消息。
 type SyncService struct {
-	usageWork             usageWorkGate
-	db                    *gorm.DB
-	client                CPAClientFetcher
-	metadataFetcher       MetadataFetcher
-	baseURL               string
-	now                   func() time.Time
-	recentUsage           RecentUsageEventAppender
-	pricingCatalog        *pricing.Catalog
-	usageRawRetentionDays int
+	usageWork       usageWorkGate
+	db              *gorm.DB
+	client          CPAClientFetcher
+	metadataFetcher MetadataFetcher
+	baseURL         string
+	// instance 是当前服务绑定的 CPA 实例名；空字符串表示单实例兼容模式。
+	instance string
+	// adoptUnattributedAPIKeys 允许命名主实例认领历史空实例的 API key 行。
+	adoptUnattributedAPIKeys bool
+	now                      func() time.Time
+	recentUsage              RecentUsageEventAppender
+	pricingCatalog           *pricing.Catalog
+	usageRawRetentionDays    int
 	// usageAggregation 只接收提交后通知，不允许热路径同步调用聚合仓储函数。
 	usageAggregation UsageAggregationNotifier
 	// usageHeaderQuota 与聚合 runner 解耦，在 Quota worker 内按一分钟窗口自行合并。
@@ -77,10 +81,15 @@ type SyncService struct {
 // NewSyncService 按配置组装 metadata／维护服务；远端 usage 拉取由 poller 独立负责。
 // 需要消费 inbox 的调用方使用 NewSyncServiceWithOptions 显式注入共享 PricingCatalog。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
+	primary := cfg.PrimaryInstance()
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL:               cfg.CPABaseURL,
 		UsageRawRetentionDays: cfg.UsageRawRetentionDays,
 		Client:                cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
+		// 单实例部署实例名为空，标签与数据行为与旧版本完全一致。
+		InstanceName: primary.Name,
+		// 命名主实例认领历史空实例 API key 行，避免升级后重复插入。
+		AdoptUnattributedAPIKeys: primary.Name != "",
 	})
 }
 
@@ -91,6 +100,10 @@ type SyncServiceOptions struct {
 	MetadataFetcher   MetadataFetcher
 	Now               func() time.Time
 	RecentUsageEvents RecentUsageEventAppender
+	// InstanceName 标识该服务所属的 CPA 实例；空值表示单实例兼容模式。
+	InstanceName string
+	// AdoptUnattributedAPIKeys 只对命名主实例开启，用于认领历史空实例的 API key 行。
+	AdoptUnattributedAPIKeys bool
 	// PricingCatalog 与价格保存服务共享，消费批次只从中固定一次只读快照。
 	PricingCatalog        *pricing.Catalog
 	UsageRawRetentionDays int
@@ -112,14 +125,16 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		metadataFetcher = opts.Client
 	}
 	return &SyncService{
-		db:                    db,
-		client:                opts.Client,
-		metadataFetcher:       metadataFetcher,
-		baseURL:               strings.TrimSpace(opts.BaseURL),
-		now:                   now,
-		recentUsage:           opts.RecentUsageEvents,
-		pricingCatalog:        opts.PricingCatalog,
-		usageRawRetentionDays: opts.UsageRawRetentionDays,
+		db:                       db,
+		client:                   opts.Client,
+		metadataFetcher:          metadataFetcher,
+		baseURL:                  strings.TrimSpace(opts.BaseURL),
+		instance:                 strings.TrimSpace(opts.InstanceName),
+		adoptUnattributedAPIKeys: opts.AdoptUnattributedAPIKeys,
+		now:                      now,
+		recentUsage:              opts.RecentUsageEvents,
+		pricingCatalog:           opts.PricingCatalog,
+		usageRawRetentionDays:    opts.UsageRawRetentionDays,
 		// 构造时只保存 notifier 接口，不启动额外 goroutine。
 		usageAggregation: opts.UsageAggregationNotifier,
 		// Header appender 始终独立于聚合 notifier，生产 App 会同时注入两个接收方。
@@ -298,6 +313,8 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, writeDB *gorm.D
 			continue
 		}
 		validRows = append(validRows, row)
+		// 实例标签来自 inbox 行，单实例部署为空字符串，事件后续携带它用于多实例汇总。
+		event.Instance = strings.TrimSpace(row.Instance)
 		events = append(events, event)
 		// nil 也占据当前 event 的索引，防止 ready/unresolved 分区后 snapshot 串行。
 		eventSnapshots = append(eventSnapshots, snapshot)

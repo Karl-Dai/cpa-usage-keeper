@@ -874,6 +874,8 @@ export interface AnalysisResponse {
 
 export interface CpaApiKeyDisplayItem {
   id: string
+  // instance 为多实例汇总的实例名；单实例部署为空字符串。
+  instance?: string
   keyAlias: string
   displayKey: string
   label: string
@@ -886,6 +888,7 @@ export interface CpaApiKeySettingsItem extends CpaApiKeyDisplayItem {
 
 export interface CpaApiKeyOption {
   id: string
+  instance?: string
   label: string
 }
 

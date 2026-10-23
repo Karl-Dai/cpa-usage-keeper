@@ -38,6 +38,9 @@ type StatusProvider interface {
 	Status() poller.Status
 }
 
+// RunnerSet 是一组同类后台任务，多实例部署用它承载每个附属实例的独立 runner。
+type RunnerSet []Runner
+
 type Options struct {
 	EnvFile string
 	AppHost string
@@ -67,6 +70,10 @@ type App struct {
 	Poller       StatusProvider
 	RedisIngest  Runner
 	RedisProcess Runner
+	// ExtraIngest 是主实例之外各实例的接收 runner，只在业务就绪后启动。
+	ExtraIngest RunnerSet
+	// ExtraMetadataSync 是主实例之外各实例的 metadata runner，当前只同步管理 API key。
+	ExtraMetadataSync RunnerSet
 	// CPAErrors 是完全独立的 best-effort errors 订阅；停止或失败不影响 Usage 与 HTTP。
 	CPAErrors Runner
 	// UsageAggregation 是唯一串行调度三类派生聚合事务的后台 runner。
@@ -88,6 +95,8 @@ type App struct {
 	ingestBridge      *UsageIngestBridge
 	serveStartup      bool
 	ingestStarted     bool
+	// extraIngestStarted 保证附属实例 runner 只在业务就绪后启动一次。
+	extraIngestStarted bool
 }
 
 // newUsageRecentEventCache 是最近事件缓存构造入口，测试可替换它来覆盖缓存初始化失败路径。
@@ -155,6 +164,10 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 		Client:                cpaClient,
 		PricingCatalog:        pricingCatalog,
 		UsageRawRetentionDays: cfg.UsageRawRetentionDays,
+		// 主实例名用于给 usage 事件和管理 API key 打标签；单实例部署为空。
+		InstanceName: cfg.PrimaryInstance().Name,
+		// 命名主实例认领历史空实例 API key 行，避免升级后重复插入。
+		AdoptUnattributedAPIKeys: cfg.PrimaryInstance().Name != "",
 		// usage_events 事务提交后通过这个缓存做非阻塞增量追加，供 Overview realtime 和右边界补偿复用。
 		RecentUsageEvents: recentUsageCache,
 		// usage 与 metadata 提交后只唤醒单 writer runner，不在前台链路执行派生聚合。
@@ -164,6 +177,32 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 	})
 	// metadataSyncRunner 提前创建，保证控制消息和后台任务使用同一个调度器实例。
 	metadataSyncRunner := NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval)
+	// 多实例汇总：主实例之外的实例各自接收 usage，并且只同步自己的管理 API key。
+	// credentials／provider metadata 仍由主实例维护，避免多个实例互相覆盖身份数据。
+	instances := cfg.InstanceList()
+	extraIngestRunners := make(RunnerSet, 0, len(instances))
+	extraMetadataRunners := make(RunnerSet, 0, len(instances))
+	extraIngests := make([]*poller.RedisIngestRunner, 0, len(instances))
+	for _, instance := range instances[1:] {
+		instanceSyncService := service.NewSyncServiceWithOptions(db, service.SyncServiceOptions{
+			BaseURL:      instance.BaseURL,
+			Client:       cpa.NewClient(instance.BaseURL, instance.ManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
+			InstanceName: instance.Name,
+		})
+		// 附属实例的 metadata runner 只同步管理 API key，复用主实例的连接信号与 refresh 调度。
+		instanceMetadataRunner := NewMetadataSyncRunner(instanceAPIKeySyncer{service: instanceSyncService}, cfg.MetadataSyncInterval)
+		// inbox 行按实例打标，process runner 读取标签后写入 usage_events.instance。
+		instanceIngestRunner := newUsageIngestRunnerForInstance(cfg, instance, poller.NewRedisInboxWriterForInstance(db, instance.Name), instanceMetadataRunner)
+		extraIngestRunners = append(extraIngestRunners, instanceIngestRunner)
+		extraMetadataRunners = append(extraMetadataRunners, instanceMetadataRunner)
+		extraIngests = append(extraIngests, instanceIngestRunner)
+	}
+	// 状态展示合并全部实例的远端 ingest，再叠加本地 process 状态。
+	allIngests := make([]*poller.RedisIngestRunner, 0, len(extraIngests)+1)
+	if ingestRunner != nil {
+		allIngests = append(allIngests, ingestRunner)
+	}
+	allIngests = append(allIngests, extraIngests...)
 	// 同一接收 runner 在迁移与业务阶段存活；桥接的 writer/observer 在库就绪后一次移交。
 	// redisProcessRunner 仍然只处理本地 inbox 到 usage_events 的消费。
 	redisProcessRunner := poller.NewRedisProcessRunner(syncService)
@@ -179,8 +218,8 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 		TLSSkipVerify: cfg.TLSSkipVerify,
 	})
 	redisErrorIngestRunner := poller.NewRedisErrorIngestRunner(redisErrorSubscribeSource, errorEventService)
-	// backgroundPoller 继续组合远端 ingest 和本地 process 的状态展示。
-	backgroundPoller := poller.NewRedisPoller(ingestRunner, redisProcessRunner)
+	// backgroundPoller 继续组合全部实例的远端 ingest 和本地 process 的状态展示。
+	backgroundPoller := poller.NewRedisPollerForIngests(allIngests, redisProcessRunner)
 	var backupMaintenance *DatabaseBackupRunner
 	if cfg.BackupEnabled {
 		// 备份继续借用唯一 writer 连接，保持旧版串行快照语义，避免独立连接持续写入时反复重启在线备份。
@@ -248,6 +287,8 @@ func buildReadyApp(cfg config.Config, db, readDB *gorm.DB, logCloser io.Closer, 
 		// Redis ingest/process 分成两个后台 runner，避免远端订阅拉取和本地 SQLite 处理互相等待。
 		RedisIngest:       ingestRunner,
 		RedisProcess:      redisProcessRunner,
+		ExtraIngest:       extraIngestRunners,
+		ExtraMetadataSync: extraMetadataRunners,
 		CPAErrors:         redisErrorIngestRunner,
 		UsageAggregation:  usageAggregationRunner,
 		Maintenance:       NewStorageCleanupRunner(syncService),
@@ -395,6 +436,32 @@ func (a *App) startReadyBackgroundTasks(ctx context.Context) {
 				logrus.Errorf("redis ingest stopped: %v", err)
 			}
 		})
+	}
+	// 附属实例只在业务就绪后开始接收，避免迁移窗口写入缺少实例标签的 inbox 行。
+	if !a.extraIngestStarted {
+		a.extraIngestStarted = true
+		for _, runner := range a.ExtraIngest {
+			if runner == nil {
+				continue
+			}
+			target := runner
+			a.startBackgroundTask(func() {
+				if err := target.Run(ctx); err != nil {
+					logrus.Errorf("redis instance ingest stopped: %v", err)
+				}
+			})
+		}
+		for _, runner := range a.ExtraMetadataSync {
+			if runner == nil {
+				continue
+			}
+			target := runner
+			a.startBackgroundTask(func() {
+				if err := target.Run(ctx); err != nil {
+					logrus.Errorf("instance metadata sync stopped: %v", err)
+				}
+			})
+		}
 	}
 	if a.RedisProcess != nil {
 		a.startBackgroundTask(func() {

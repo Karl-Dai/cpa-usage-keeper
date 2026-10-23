@@ -90,7 +90,9 @@ func (a *App) Initialize(ctx context.Context) error {
 		return fmt.Errorf("prepare business services: %w", err)
 	}
 	a.installReadyApp(ready)
-	if err := bridge.ActivateNormalWriter(poller.NewRedisInboxWriter(db), a.MetadataSync); err != nil {
+	// 主实例的 inbox 行也带实例标签，多实例汇总时与附属实例使用同一套过滤逻辑。
+	primaryWriter := poller.NewRedisInboxWriterForInstance(db, a.Config.PrimaryInstance().Name)
+	if err := bridge.ActivateNormalWriter(primaryWriter, a.MetadataSync); err != nil {
 		return fmt.Errorf("activate normal usage ingest: %w", err)
 	}
 	return nil
@@ -104,6 +106,8 @@ func (a *App) installReadyApp(ready *App) {
 	a.MetadataSync, a.QuotaService, a.QuotaAutoRefresh = ready.MetadataSync, ready.QuotaService, ready.QuotaAutoRefresh
 	a.BackupMaintenance, a.RecentUsageCache = ready.BackupMaintenance, ready.RecentUsageCache
 	a.CostReadGate, a.PricingCatalog, a.PricingService = ready.CostReadGate, ready.PricingCatalog, ready.PricingService
+	// 附属实例 runner 只在就绪后启动，这里随其余业务字段一起移交。
+	a.ExtraIngest, a.ExtraMetadataSync = ready.ExtraIngest, ready.ExtraMetadataSync
 	a.Router = ready.Router
 }
 

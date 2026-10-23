@@ -103,6 +103,8 @@ const (
 	migrationAddUsageEventTraceMetadata = "20261008_usage_event_trace_metadata"
 	// migrationRecoverExecutionUsageEvents 以短事务回填事件标识并重新排队旧入口误拒绝的执行消息。
 	migrationRecoverExecutionUsageEvents = "20261018_recover_execution_usage_events"
+	// migrationAddCPAInstanceLabels 为 usage_events、redis_usage_inboxes、cpa_api_keys 补充实例标签。
+	migrationAddCPAInstanceLabels = "20261023_add_cpa_instance_labels"
 )
 
 type schemaMigration struct {
@@ -318,6 +320,8 @@ func orderedMigrations() []databaseMigration {
 		// 恢复迁移追加在 v2 既有迁移之后，保留已部署 next 的执行顺序。
 		{version: migrationRecoverExecutionUsageEvents, run: recoverExecutionUsageEventsMigration, disableTransaction: true},
 		{version: "20261020_add_auth_session_oidc_identity", run: addAuthSessionOIDCIdentityMigration},
+		// 多实例标签列与实例内唯一索引必须和版本标记同事务提交，避免半升级库继续写入无标签行。
+		{version: migrationAddCPAInstanceLabels, run: addCPAInstanceLabelsMigration},
 	}
 }
 

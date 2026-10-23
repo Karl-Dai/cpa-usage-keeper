@@ -4,8 +4,10 @@ import "time"
 
 // UsageEvent 是落库后的单条 usage 请求事件实体。
 type UsageEvent struct {
-	ID                  int64 `gorm:"primaryKey;index:idx_usage_events_timestamp_id,sort:desc,priority:2;index:idx_usage_events_auth_type_auth_index_id,priority:3;index:idx_usage_events_auth_index_timestamp_id,priority:3"`
-	EventKey            string
+	ID       int64 `gorm:"primaryKey;index:idx_usage_events_timestamp_id,sort:desc,priority:2;index:idx_usage_events_auth_type_auth_index_id,priority:3;index:idx_usage_events_auth_index_timestamp_id,priority:3"`
+	EventKey string
+	// Instance 标识产生该事件的 CPA 实例；单实例部署为空字符串。
+	Instance            string    `gorm:"column:instance;not null;default:''"`
 	APIGroupKey         string    `gorm:"index:idx_usage_events_api_group_key_timestamp,priority:1"`
 	Provider            string    `gorm:"column:provider"`
 	Endpoint            string    `gorm:"column:endpoint"`

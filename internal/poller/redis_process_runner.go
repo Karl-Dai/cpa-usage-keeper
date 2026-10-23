@@ -272,15 +272,54 @@ func (r *RedisProcessRunner) validate() error {
 }
 
 type RedisPoller struct {
-	// ingest 管理远端 CPA -> redis_usage_inboxes。
-	ingest *RedisIngestRunner
+	// ingests 管理全部 CPA 实例远端 -> redis_usage_inboxes；单实例部署只有一个元素。
+	ingests []*RedisIngestRunner
 	// process 管理 redis_usage_inboxes -> usage_events。
 	process *RedisProcessRunner
 }
 
 func NewRedisPoller(ingest *RedisIngestRunner, process *RedisProcessRunner) *RedisPoller {
 	// RedisPoller 只聚合远端 ingest 和本地 process 状态，不作为后台 runner 启动。
-	return &RedisPoller{ingest: ingest, process: process}
+	if ingest == nil {
+		return &RedisPoller{process: process}
+	}
+	return &RedisPoller{ingests: []*RedisIngestRunner{ingest}, process: process}
+}
+
+// NewRedisPollerForIngests 聚合多个实例的远端 ingest 状态，供多实例汇总的状态接口使用。
+func NewRedisPollerForIngests(ingests []*RedisIngestRunner, process *RedisProcessRunner) *RedisPoller {
+	return &RedisPoller{ingests: ingests, process: process}
+}
+
+// ingestStatus 合并全部实例的 ingest 状态：运行标志取并集，时间取最新，错误与警告拼接保留。
+func (p *RedisPoller) ingestStatus() Status {
+	merged := Status{}
+	for _, ingest := range p.ingests {
+		if ingest == nil {
+			continue
+		}
+		current := ingest.Status()
+		merged.Running = merged.Running || current.Running
+		merged.SyncRunning = merged.SyncRunning || current.SyncRunning
+		if current.LastRunAt.After(merged.LastRunAt) {
+			merged.LastRunAt = current.LastRunAt
+			merged.LastStatus = current.LastStatus
+		}
+		merged.LastError = joinStatusMessages(merged.LastError, current.LastError)
+		merged.LastWarning = joinStatusMessages(merged.LastWarning, current.LastWarning)
+	}
+	return merged
+}
+
+// joinStatusMessages 以分号拼接多实例状态文本，空值不产生前导分隔符。
+func joinStatusMessages(existing, incoming string) string {
+	if incoming == "" {
+		return existing
+	}
+	if existing == "" {
+		return incoming
+	}
+	return existing + "; " + incoming
 }
 
 func (p *RedisPoller) Status() Status {
@@ -288,12 +327,8 @@ func (p *RedisPoller) Status() Status {
 		// nil poller 返回空状态，保持状态接口稳定。
 		return Status{}
 	}
-	// 默认 ingest 状态为空。
-	ingestStatus := Status{}
-	if p.ingest != nil {
-		// ingest 存在时读取远端拉取状态。
-		ingestStatus = p.ingest.Status()
-	}
+	// 多个实例的 ingest 状态在这里合并成一个对外状态。
+	ingestStatus := p.ingestStatus()
 	// 默认 process 状态为空。
 	processStatus := Status{}
 	if p.process != nil {
